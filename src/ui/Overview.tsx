@@ -21,6 +21,8 @@ function describe(c: Command): string {
       return "rate spreads";
     case "setMarkup":
       return `${c.target} markup ${c.percent}%`;
+    case "setTaxRates":
+      return `tax rates (income ${c.income ?? "-"}%, corporate ${c.corporate ?? "-"}%)`;
     default:
       return `${c.type} ${c.amount}`;
   }
@@ -36,6 +38,9 @@ export function Overview() {
   const [loanAmount, setLoanAmount] = useState(1000);
   const [policyRate, setPolicyRate] = useState(3);
   const [retailSpread, setRetailSpread] = useState(15);
+  const [incomeTax, setIncomeTax] = useState(0);
+  const [corporateTax, setCorporateTax] = useState(0);
+  const [convertAmount, setConvertAmount] = useState(1000);
   const [grantCohort, setGrantCohort] = useState("cohort-0");
 
   useEffect(() => {
@@ -76,7 +81,7 @@ export function Overview() {
   };
 
   if (!snapshot) return <p>Loading…</p>;
-  const { tick, seed, speed, moneySupply, holders, log, cohorts, households, summary, industries, products, wageMarkup, bank, queued } = snapshot;
+  const { tick, seed, speed, moneySupply, holders, log, cohorts, households, summary, industries, products, wageMarkup, bank, queued, fiscal, sectoral } = snapshot;
 
   return (
     <main style={{ fontFamily: "system-ui", maxWidth: 800, margin: "2rem auto", padding: "0 1rem" }}>
@@ -133,6 +138,32 @@ export function Overview() {
           Industry Loan to Agriculture
         </button>
       </p>
+      <p>
+        <input type="number" min={1} value={convertAmount} onChange={(e) => setConvertAmount(Number(e.target.value))} />{" "}
+        <button onClick={() => send({ type: "command", command: { type: "convertLoan", industryId: "agriculture", amount: convertAmount } })}>
+          Convert Agriculture loan to Equity Stake
+        </button>
+      </p>
+      <h2>Taxes</h2>
+      <p>
+        Income tax (%) <input type="number" min={0} max={100} value={incomeTax} onChange={(e) => setIncomeTax(Number(e.target.value))} />{" "}
+        Corporate tax (%) <input type="number" min={0} max={100} value={corporateTax} onChange={(e) => setCorporateTax(Number(e.target.value))} />{" "}
+        <button onClick={() => send({ type: "command", command: { type: "setTaxRates", income: incomeTax, corporate: corporateTax } })}>Set tax rates</button>
+      </p>
+      <p>
+        Rates {fiscal.rates.income}% income, {fiscal.rates.corporate}% corporate · Last Tick: income tax {fiscal.incomeTax.toLocaleString()}, corporate tax{" "}
+        {fiscal.corporateTax.toLocaleString()}, dividends to Owner Cohort {fiscal.dividendsToOwners.toLocaleString()}, to Treasury{" "}
+        {fiscal.dividendsToTreasury.toLocaleString()}, Household spending {fiscal.householdSpending.toLocaleString()}
+      </p>
+      <h2>Sectoral Balance</h2>
+      <table>
+        <tbody>
+          <tr><td>Government</td><td align="right">{sectoral.government.toLocaleString()}</td></tr>
+          <tr><td>Households</td><td align="right">{sectoral.households.toLocaleString()}</td></tr>
+          <tr><td>Industries</td><td align="right">{sectoral.industries.toLocaleString()}</td></tr>
+          <tr><td>Commercial Banks</td><td align="right">{sectoral.commercialBanks.toLocaleString()}</td></tr>
+        </tbody>
+      </table>
       <h2>Commercial Bank</h2>
       <p>
         Policy Rate (%) <input type="number" min={0} step={0.5} value={policyRate} onChange={(e) => setPolicyRate(Number(e.target.value))} />{" "}

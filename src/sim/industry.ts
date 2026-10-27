@@ -66,6 +66,8 @@ export interface IndustryView extends Industry {
   money: number;
   loanOwed: number;
   equity: number;
+  /** The Government's Equity Stake, converted from its Industry Loan. */
+  stake: number;
 }
 
 export const WORKER_COHORT = "cohort-0";
@@ -179,6 +181,8 @@ export interface MarketInputs {
   tastes: Tastes;
   /** Player Markup / Discount in percent by Product id, and by "wages". */
   markups: Record<string, number>;
+  /** Income tax in percent, taken from wages as they are paid. */
+  incomeTax: number;
 }
 
 /** Units of a line the Industry means to make: whatever sells to Households, or what other Industries asked for. */
@@ -214,8 +218,8 @@ export function runIndustry(
   ledger: Ledger,
   inputs: MarketInputs,
   tick: number,
-): { industry: Industry; ledger: Ledger; events: MoneyEvent[]; fills: Record<string, number> } {
-  if (!industry.started) return { industry, ledger, events: [], fills: {} };
+): { industry: Industry; ledger: Ledger; events: MoneyEvent[]; fills: Record<string, number>; incomeTax: number; householdSpending: number } {
+  if (!industry.started) return { industry, ledger, events: [], fills: {}, incomeTax: 0, householdSpending: 0 };
   const acct = industryAccounts(industry);
   const events: MoneyEvent[] = [];
   const apply = (tx: Transaction) => {
@@ -224,6 +228,7 @@ export function runIndustry(
     if (result.event) events.push(result.event);
   };
   const { cohorts, tastes, markups } = inputs;
+  let incomeTax = 0;
 
   // The wage is discovered first, then the player's Markup / Discount applies on top.
   // Only as many workers are hired as there are inputs and Capacity to keep busy, and money to pay.
@@ -242,6 +247,19 @@ export function runIndustry(
         { account: `${WORKER_COHORT}:equity`, credit: wagesPaid },
       ],
     });
+    // Income tax is taken as wages are paid, so it is gone before workers go shopping.
+    incomeTax = Math.min(Math.floor((wagesPaid * inputs.incomeTax) / 100), balance(ledger, `${WORKER_COHORT}:money`));
+    if (incomeTax > 0) {
+      apply({
+        type: "incomeTax",
+        entries: [
+          { account: `${WORKER_COHORT}:equity`, debit: incomeTax },
+          { account: `${WORKER_COHORT}:money`, credit: incomeTax },
+          { account: "treasury:money", debit: incomeTax },
+          { account: "treasury:equity", credit: incomeTax },
+        ],
+      });
+    }
   }
 
   // Produce from inputs on hand and Capacity, then age and spoil stock.
@@ -331,9 +349,9 @@ export function runIndustry(
   const adjusted = { ...next, targetHeadcount: adjustHeadcount(next) };
   if (adjusted.brokeTicks >= BROKE_AFTER) {
     const failure = fail(adjusted, ledger, tick);
-    return { industry: failure.industry, ledger: failure.ledger, events: [...events, ...failure.events], fills: foodBought };
+    return { industry: failure.industry, ledger: failure.ledger, events: [...events, ...failure.events], fills: foodBought, incomeTax, householdSpending: householdRevenue };
   }
-  return { industry: adjusted, ledger, events, fills: foodBought };
+  return { industry: adjusted, ledger, events, fills: foodBought, incomeTax, householdSpending: householdRevenue };
 }
 
 /**

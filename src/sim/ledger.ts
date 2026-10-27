@@ -32,6 +32,10 @@ export const TRANSACTION_TYPES = {
   retailInterest: { effect: "none", cause: "Retail Credit interest" },
   writeOff: { effect: "destroy", cause: "Write-off" },
   writeOffLoss: { effect: "none", cause: "Write-off" },
+  incomeTax: { effect: "none", cause: "Income tax" },
+  corporateTax: { effect: "none", cause: "Corporate tax" },
+  dividend: { effect: "none", cause: "Dividend" },
+  equityConversion: { effect: "none", cause: "Equity Stake" },
 } as const satisfies Record<string, { effect: SupplyEffect; cause: string }>;
 
 export type TransactionType = keyof typeof TRANSACTION_TYPES;

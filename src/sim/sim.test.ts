@@ -4,6 +4,7 @@ import {
   commercialBank,
   createWorld,
   deserialize,
+  fiscal,
   industries,
   InvariantViolation,
   moneyHolders,
@@ -133,7 +134,8 @@ describe("Agriculture", () => {
     expect(grain.price).toBeGreaterThan(0);
     expect(stockOf(grain)).toBe(grain.produced - grain.sold);
     // The sales returned money to the Industry.
-    expect(a.money).toBe(1000 - a.wagesPaid + a.lines.reduce((s, l) => s + l.sold * l.price, 0));
+    // Less the dividend the Industry paid its owners out of that first profit.
+    expect(a.money).toBe(1000 - a.wagesPaid + a.lines.reduce((s, l) => s + l.sold * l.price, 0) - fiscal(world).dividendsToOwners);
   });
 
   it("keeps the money supply fixed while money circulates over many Ticks", () => {

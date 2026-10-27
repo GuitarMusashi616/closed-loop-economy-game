@@ -1,4 +1,4 @@
-import type { Citizen, CommercialBankView, Cohort, CohortView, Command, CountrySummary, IndustryView, MoneyEvent, ProductMarketView } from "../sim";
+import type { FiscalFlows, SectoralBalanceView, TaxRates, Citizen, CommercialBankView, Cohort, CohortView, Command, CountrySummary, IndustryView, MoneyEvent, ProductMarketView } from "../sim";
 
 export type Speed = 0 | 1 | 2 | 4;
 
@@ -25,6 +25,8 @@ export interface Snapshot {
   wageMarkup: number;
   bank: CommercialBankView;
   queued: Command[];
+  fiscal: FiscalFlows & { rates: TaxRates };
+  sectoral: SectoralBalanceView;
 }
 
 export type FromWorker =
