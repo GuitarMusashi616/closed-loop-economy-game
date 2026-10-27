@@ -5,6 +5,7 @@ import { industryAccounts, newIndustries, runIndustry, startIndustry, stockOf, t
 import { PRODUCTS, driftTastes, neutralTastes, type Tastes, type Tier } from "./products";
 import { BANK_ACCOUNTS, FOUNDING_BALANCES, bankView, newPolicy, runRetailCredit, type BankPolicy, type CommercialBankView } from "./bank";
 import { NO_FLOWS, checkRate, payTaxAndDividends, stakeAccount, type FiscalFlows, type TaxRates } from "./tax";
+import { adjustWagesForDeflation, debtAccounts, debtBurdens as computeBurdens, governmentDebt as computeDebt, issueDebt, priceIndex as computePriceIndex, retireDebt, type DebtBurdensView, type GovernmentDebtView } from "./debt";
 import { checkInvariants, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
 
 export type { MoneyEvent } from "./ledger";
@@ -13,6 +14,7 @@ export type { IndustryView, ProductLine } from "./industry";
 export type { Tastes, Tier } from "./products";
 export type { BankPolicy, CommercialBankView } from "./bank";
 export type { FiscalFlows, TaxRates } from "./tax";
+export type { DebtBurden, DebtBurdensView, GovernmentDebtView } from "./debt";
 
 export type Command =
   | { type: "monetize"; amount: number }
@@ -25,7 +27,11 @@ export type Command =
   /** Converts part of an Industry's Industry Loan into an Equity Stake that pays dividends to the Treasury. */
   | { type: "convertLoan"; industryId: string; amount: number }
   /** A Markup / Discount in percent on a Product id or on "wages", applied after discovery. 0 clears it. */
-  | { type: "setMarkup"; target: string; percent: number };
+  | { type: "setMarkup"; target: string; percent: number }
+  /** Sells Government debt to "bank" or a Household Cohort id for their cash. Money only changes hands. */
+  | { type: "issueDebt"; holder: string; amount: number }
+  /** Pays Treasury cash to retire debt. Debt held by "centralBank" destroys money; any other holder just gets cash back. */
+  | { type: "retireDebt"; holder: string; amount: number };
 
 export type { AgeBand, Citizen, Cohort, CohortView, CountrySummary } from "./households";
 
@@ -46,9 +52,14 @@ export interface World {
   flows: FiscalFlows;
   ledger: Ledger;
   log: MoneyEvent[];
+  /** Ticks left in a deflation episode, started when a Tick destroys a real share of the money supply. */
+  deflation: number;
 }
 
 const TREASURY = "Treasury";
+/** A Tick that destroys at least this share of the money supply starts a deflation episode. */
+const DEFLATION_TRIGGER = 0.02;
+const DEFLATION_TICKS = 30;
 
 const ACCOUNTS: Account[] = [
   { id: "centralBank:moneyIssued", kind: "liability", holder: "Central Bank", isMoney: false },
@@ -101,9 +112,11 @@ export function createWorld(seed: number, options: { waterCoverage?: number } = 
       ...BANK_ACCOUNTS,
       { id: "treasury:equity", kind: "equity", holder: TREASURY, isMoney: false },
       ...cohortAccounts,
+      ...debtAccounts(cohorts),
       ...industries.flatMap(accountsFor),
     ])),
     log: [],
+    deflation: 0,
   };
 }
 
@@ -236,6 +249,21 @@ export function sectoralBalance(world: World): SectoralBalanceView {
   return totals;
 }
 
+/** Who holds the Government's debt. */
+export function governmentDebt(world: World): GovernmentDebtView {
+  return computeDebt(world.ledger, world.cohorts.map((c) => c.id));
+}
+
+/** Average Product price relative to the start, 1 at the start. */
+export function priceIndex(world: World): number {
+  return computePriceIndex(world.industries);
+}
+
+/** Nominal and real (price-adjusted) debts of the Government, Industries and Households. */
+export function debtBurdens(world: World): DebtBurdensView {
+  return computeBurdens(world.ledger, world.industries, world.cohorts.map((c) => c.id));
+}
+
 export function moneySupply(world: World): number {
   return ledgerMoneySupply(world.ledger);
 }
@@ -346,8 +374,13 @@ export function step(world: World, commands: Command[]): { world: World; events:
       world.tick,
     ).ledger;
   }
+  // A real contraction of the money supply starts a deflation episode, during which falling prices are passed on to wages.
+  const before = ledgerMoneySupply(world.ledger);
+  const contracted = before > 0 && (before - ledgerMoneySupply(ledger)) / before >= DEFLATION_TRIGGER;
+  const deflation = contracted ? DEFLATION_TICKS : Math.max(0, (world.deflation ?? 0) - 1);
+  const settled = deflation > 0 ? adjustWagesForDeflation(next, computePriceIndex(next)) : next;
   checkInvariants(ledger);
-  return { world: { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: next, policy, tastes, markups, taxes, flows, ledger, log: [...world.log, ...events] }, events };
+  return { world: { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: settled, policy, tastes, markups, taxes, flows, ledger, log: [...world.log, ...events], deflation }, events };
 }
 
 function applyMarkupCommand(markups: Record<string, number>, command: Extract<Command, { type: "setMarkup" }>): Record<string, number> {
@@ -389,6 +422,10 @@ function toTransaction(world: World, command: Exclude<Command, { type: "setPolic
           { account: "centralBank:moneyIssued", credit: command.amount },
         ],
       };
+    case "issueDebt":
+      return issueDebt(world.ledger, world.cohorts.map((c) => c.id), command.holder, command.amount);
+    case "retireDebt":
+      return retireDebt(world.ledger, world.cohorts.map((c) => c.id), command.holder, command.amount);
     case "convertLoan": {
       const industry = world.industries.find((i) => i.id === command.industryId);
       if (!industry) throw new Error(`Unknown Industry ${command.industryId}`);
