@@ -23,6 +23,8 @@ export interface Cohort {
   emigrated: number;
   /** Consecutive Ticks the cohort has missed a Retail Credit payment. */
   missedPayments: number;
+  /** Citizens studying this Tick, who are out of the workforce. */
+  students: number;
 }
 
 export interface CohortView extends Cohort {
@@ -77,12 +79,12 @@ export function newCohort(id: string, name: string, ageBand: AgeBand, population
   return {
     id, name, ageBand, population,
     health: 90, hunger: 0, thirst: 0, homelessness: 0, education,
-    poorTicks: 0, deaths: 0, emigrated: 0, missedPayments: 0,
+    poorTicks: 0, deaths: 0, emigrated: 0, missedPayments: 0, students: 0,
   };
 }
 
 export function hasWelfareStats(cohorts: Cohort[]): boolean {
-  return cohorts.every((c) => typeof c.health === "number" && typeof c.poorTicks === "number");
+  return cohorts.every((c) => typeof c.health === "number" && typeof c.poorTicks === "number" && typeof c.students === "number");
 }
 
 /** A need level moves towards 0 as it is met and towards 100 as it is missing. */

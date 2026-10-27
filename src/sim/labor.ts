@@ -43,6 +43,10 @@ export const newLabor = (): Labor => ({ skills: {} });
 
 export const isWorkingAge = (c: Cohort) => c.ageBand !== "retired";
 
+/** Working-age citizens who are not studying. */
+export const workforceOf = (cohorts: Cohort[]) =>
+  cohorts.filter(isWorkingAge).reduce((s, c) => s + c.population - Math.min(c.students, c.population), 0);
+
 interface Pool {
   count: number;
   skills: Record<string, number>;
@@ -79,7 +83,7 @@ export function runLabor(
   labor: Labor,
   demand: (industry: Industry) => number,
 ): { industries: Industry[]; labor: Labor } {
-  const force = cohorts.filter(isWorkingAge).reduce((s, c) => s + c.population, 0);
+  const force = workforceOf(cohorts);
   const wanted = new Map(industries.map((i) => [i.id, i.started && !i.failed ? Math.max(0, demand(i)) : 0]));
 
   // Deaths and emigration shrink the workforce; if it falls below the jobs held, every pool shrinks in step.

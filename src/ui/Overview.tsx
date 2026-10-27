@@ -23,6 +23,10 @@ function describe(c: Command): string {
       return `${c.target} markup ${c.percent}%`;
     case "setTaxRates":
       return `tax rates (income ${c.income ?? "-"}%, corporate ${c.corporate ?? "-"}%)`;
+    case "setPublicFunding":
+      return `${c.service} Public Funding Share ${c.percent}%`;
+    case "setGovernmentEducationLoans":
+      return `Government Tuition Loans ${c.enabled ? "on" : "off"}`;
     default:
       return `${c.type} ${c.amount}`;
   }
@@ -40,6 +44,8 @@ export function Overview() {
   const [retailSpread, setRetailSpread] = useState(15);
   const [incomeTax, setIncomeTax] = useState(0);
   const [corporateTax, setCorporateTax] = useState(0);
+  const [healthcareShare, setHealthcareShare] = useState(0);
+  const [educationShare, setEducationShare] = useState(0);
   const [convertAmount, setConvertAmount] = useState(1000);
   const [grantCohort, setGrantCohort] = useState("cohort-0");
 
@@ -81,7 +87,7 @@ export function Overview() {
   };
 
   if (!snapshot) return <p>Loading…</p>;
-  const { tick, seed, speed, moneySupply, holders, log, cohorts, households, summary, industries, products, wageMarkup, bank, queued, fiscal, sectoral } = snapshot;
+  const { tick, seed, speed, moneySupply, holders, log, cohorts, households, summary, industries, products, wageMarkup, bank, queued, fiscal, sectoral, education } = snapshot;
 
   return (
     <main style={{ fontFamily: "system-ui", maxWidth: 800, margin: "2rem auto", padding: "0 1rem" }}>
@@ -154,6 +160,22 @@ export function Overview() {
         Rates {fiscal.rates.income}% income, {fiscal.rates.corporate}% corporate · Last Tick: income tax {fiscal.incomeTax.toLocaleString()}, corporate tax{" "}
         {fiscal.corporateTax.toLocaleString()}, dividends to Owner Cohort {fiscal.dividendsToOwners.toLocaleString()}, to Treasury{" "}
         {fiscal.dividendsToTreasury.toLocaleString()}, Household spending {fiscal.householdSpending.toLocaleString()}
+      </p>
+      <h2>Education and public services</h2>
+      <p>
+        Healthcare Public Funding Share (%) <input type="number" min={0} max={100} value={healthcareShare} onChange={(e) => setHealthcareShare(Number(e.target.value))} />{" "}
+        <button onClick={() => send({ type: "command", command: { type: "setPublicFunding", service: "healthcare", percent: healthcareShare } })}>Set</button>{" "}
+        Education Public Funding Share (%) <input type="number" min={0} max={100} value={educationShare} onChange={(e) => setEducationShare(Number(e.target.value))} />{" "}
+        <button onClick={() => send({ type: "command", command: { type: "setPublicFunding", service: "education", percent: educationShare } })}>Set</button>{" "}
+        <button onClick={() => send({ type: "command", command: { type: "setGovernmentEducationLoans", enabled: !education.governmentLoans } })}>
+          Government Tuition Loans: {education.governmentLoans ? "on (turn off)" : "off (turn on)"}
+        </button>
+      </p>
+      <p>
+        Tuition {education.price} per study day · Tuition Loan rate {(education.tuitionRate * 100).toFixed(1)}%
+        {education.governmentRate === null ? "" : `, Government ${(education.governmentRate * 100).toFixed(1)}%`} · Students {education.students.toLocaleString()} ·
+        Tuition debt: bank {education.debt.bank.toLocaleString()}, Government {education.debt.government.toLocaleString()} · Last Tick: students paid{" "}
+        {education.tuitionPaid.toLocaleString()}, Treasury paid {education.publicSpending.toLocaleString()} tuition and {education.healthcareFunding.toLocaleString()} healthcare
       </p>
       <h2>Sectoral Balance</h2>
       <table>

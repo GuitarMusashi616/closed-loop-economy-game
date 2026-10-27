@@ -26,6 +26,8 @@ export function runSupplyWeb(
   ledger: Ledger,
   markups: Record<string, number>,
   tick: number,
+  /** Units of Products that households want, which also sets what Industries expect to make. */
+  householdAsked: Record<string, number> = {},
 ): { industries: Industry[]; ledger: Ledger; events: MoneyEvent[] } {
   const events: MoneyEvent[] = [];
   const apply = (tx: Transaction) => {
@@ -65,6 +67,7 @@ export function runSupplyWeb(
   // What was asked for, price aside, sets how much each Industry expects to make next Tick.
   const asked: Record<string, number> = {};
   for (const r of requests) asked[r.productId] = (asked[r.productId] ?? 0) + r.need;
+  for (const [id, units] of Object.entries(householdAsked)) asked[id] = (asked[id] ?? 0) + units;
   for (const industry of running()) {
     byId.set(industry.id, {
       ...industry,
