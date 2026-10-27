@@ -1,9 +1,9 @@
-import { education, research, explanations, history, moneyFlows, fiscal, sectoralBalance, cohortViews, cohorts, commercialBank, countrySummary, createWorld, sampleCitizen, deserialize, industries, moneyHolders, productMarkets, moneyLog, moneySupply, serialize, step, type Command } from "../sim";
+import { alerts, education, debtBurdens, durables, governmentDebt, leverStages, tutorial, research, explanations, history, moneyFlows, fiscal, sectoralBalance, cohortViews, cohorts, commercialBank, countrySummary, createWorld, sampleCitizen, deserialize, industries, moneyHolders, productMarkets, moneyLog, moneySupply, serialize, step, type Command } from "../sim";
 import type { FromWorker, Snapshot, Speed, ToWorker } from "./protocol";
 
 const TICK_MS = 1000;
 
-let world = createWorld(Math.floor(Math.random() * 2 ** 31));
+let world = createWorld(Math.floor(Math.random() * 2 ** 31), { gradualUnlock: true });
 let speed: Speed = 0;
 let queued: Command[] = [];
 let zoomSlot = 0;
@@ -36,6 +36,14 @@ function snapshot(): Snapshot {
     flows: moneyFlows(world, flowWindow === 0 ? 0 : Math.max(0, world.tick - flowWindow), world.tick),
     history: history(world),
     notes: explanations(world),
+    stages: leverStages(world),
+    alerts: alerts(world),
+    tutorial: tutorial(world),
+    durables: durables(world),
+    debt: governmentDebt(world),
+    burdens: debtBurdens(world),
+    pensionRate: world.pensionRate,
+    pensionsPaid: world.pensionsPaid,
   };
 }
 
