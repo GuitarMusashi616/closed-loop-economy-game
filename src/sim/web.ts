@@ -27,6 +27,8 @@ export function runSupplyWeb(
   tick: number,
   /** Units of Products that households want, which also sets what Industries expect to make. */
   householdAsked: Record<string, number> = {},
+  /** Revenue Industries already earned this Tick, from house and car purchases. */
+  presold: Record<string, number> = {},
 ): { industries: Industry[]; ledger: Ledger; events: MoneyEvent[] } {
   const events: MoneyEvent[] = [];
   const apply = (tx: Transaction) => {
@@ -36,7 +38,7 @@ export function runSupplyWeb(
   };
   const byId = new Map<string, Industry>();
   for (const i of industries) {
-    byId.set(i.id, i.started ? { ...i, revenue: 0, costs: 0, lines: i.lines.map((l) => ({ ...l, plan: planFor(i, l) })) } : i);
+    byId.set(i.id, i.started ? { ...i, revenue: presold[i.id] ?? 0, costs: 0, lines: i.lines.map((l) => ({ ...l, plan: planFor(i, l) })) } : i);
   }
   const running = () => [...byId.values()].filter((i) => i.started);
 

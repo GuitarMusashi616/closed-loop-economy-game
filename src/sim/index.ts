@@ -573,11 +573,12 @@ export function step(world: World, commands: Command[]): { world: World; events:
   const housing = runHousing(ledger, world.cohorts, started, policy, world.tick);
   ledger = housing.ledger;
   events.push(...housing.events);
+  started = housing.industries;
   const credit = runRetailCredit(ledger, housing.cohorts, started, policy, world.tick);
   ledger = credit.ledger;
   events.push(...credit.events);
   const tastes = driftTastes(world.tastes, world.seed, world.tick);
-  const web = runSupplyWeb(contractDemand(started, researchState), ledger, markups, world.tick, { education: world.education.demand });
+  const web = runSupplyWeb(contractDemand(started, researchState), ledger, markups, world.tick, { ...housing.sales.wanted, education: world.education.demand }, housing.sales.revenue);
   ledger = web.ledger;
   events.push(...web.events);
   // Industries have had first call on the Research Labs' stock; the Government's contract takes what is left.

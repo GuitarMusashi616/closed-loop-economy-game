@@ -101,25 +101,31 @@ describe("failure", () => {
 });
 
 describe("the input-output web", () => {
-  it("lets a Manufacturing slump slow the growth of other Industries", () => {
+  it("lets a Manufacturing slump slow the growth of other Industries, by a wide margin, on every seed", () => {
     const others = IDS.filter((i) => i !== "manufacturing");
-    const track = (ids: string[]) => {
-      let world = step(createWorld(42), fund(ids)).world;
-      let agriculture = 0;
-      let rest = 0;
+    /** Total workers employed over 100 Ticks, by Industry, and Agriculture's Capacity at the end. */
+    const track = (seed: number, ids: string[]) => {
+      let world = step(createWorld(seed), fund(ids)).world;
+      const workers: Record<string, number> = {};
       for (let t = 0; t < 100; t++) {
         world = step(world, []).world;
-        agriculture += view(world, "agriculture").headcount;
-        rest += industries(world).filter((i) => i.id !== "agriculture").reduce((s, i) => s + i.headcount, 0);
+        for (const i of industries(world)) workers[i.id] = (workers[i.id] ?? 0) + i.headcount;
       }
-      return { world, agriculture, rest };
+      const rest = Object.entries(workers).filter(([id]) => id !== "agriculture" && id !== "manufacturing").reduce((s, [, n]) => s + n, 0);
+      return { agriculture: workers.agriculture!, rest, construction: workers.construction!, capacity: view(world, "agriculture").capacity };
     };
-    const healthy = track(IDS);
-    const slump = track(others);
-    // Without tools and machinery, Capacity wears away, so Agriculture and the rest hire less.
-    expect(view(slump.world, "agriculture").capacity).toBeLessThan(view(healthy.world, "agriculture").capacity);
-    expect(slump.agriculture).toBeLessThan(healthy.agriculture);
-    expect(slump.rest).toBeLessThan(healthy.rest);
+    for (const seed of [1, 7, 42]) {
+      const healthy = track(seed, IDS);
+      const slump = track(seed, others);
+      // Without tools and machinery, Capacity wears away, so Agriculture hires under half as many workers
+      // and the Industries that sell to and buy from Manufacturing shrink by a third or more.
+      expect(slump.capacity).toBeLessThan(healthy.capacity / 3);
+      expect(slump.agriculture).toBeLessThan(healthy.agriculture * 0.5);
+      expect(slump.rest).toBeLessThan(healthy.rest * 0.7);
+      // Construction is staffed when the web works and starved of metal when Manufacturing is gone.
+      expect(healthy.construction).toBeGreaterThan(0);
+      expect(slump.construction).toBe(0);
+    }
   });
 
   it("is deterministic and survives a save", () => {

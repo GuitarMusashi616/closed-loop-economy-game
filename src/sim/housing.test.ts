@@ -17,8 +17,17 @@ const view = (world: World, id: string) => cohortViews(world).find((c) => c.id =
 const dur = (world: World, id: string) => durables(world).find((d) => d.cohortId === id)!;
 const grant = (cohortId: string, amount: number): Command => ({ type: "grant", cohortId, amount });
 const topUp: Command[] = [{ type: "monetize", amount: 10_000 }];
+/** Gives the sellers of houses and cars plenty of stock, since a purchase is a real sale that needs goods to draw down. */
+const stocked = (world: World, units = 400): World => ({
+  ...world,
+  industries: world.industries.map((i) =>
+    i.id === "construction" || i.id === "manufacturing"
+      ? { ...i, lines: i.lines.map((l) => (l.productId === "buildings" || l.productId === "machinery" ? { ...l, batches: [units] } : l)) }
+      : i,
+  ),
+});
 /** A world where cohort-0 is short of houses and has cash to borrow with. */
-const shortOfHouses = (housed = 0.5) => step(createWorld(42, { housed }), [...fund(IDS), ...topUp, grant(WORKERS, 5000)]).world;
+const shortOfHouses = (housed = 0.5) => stocked(step(createWorld(42, { housed }), [...fund(IDS), ...topUp, grant(WORKERS, 5000)]).world);
 
 describe("durables", () => {
   it("start as owned assets, so a new world still has no money", () => {
@@ -58,12 +67,31 @@ describe("Collateralised Loans", () => {
     expect(dur(start, WORKERS).houses).toBeLessThan(dur(next, WORKERS).houses);
   });
 
+  it("buy a real product: the house draws down Construction's stock and counts as its revenue", () => {
+    const world = shortOfHouses();
+    const stockOf = (w: World) => w.industries.find((i) => i.id === "construction")!.lines[0]!.batches.reduce((a, b) => a + b, 0);
+    const before = stockOf(world);
+    const next = run(world, 1);
+    expect(dur(next, WORKERS).houses).toBe(dur(world, WORKERS).houses + 1);
+    // Construction sold the house's buildings (4 units) at once, and the 800 is part of its revenue.
+    expect(before - stockOf(next)).toBeGreaterThanOrEqual(4);
+    expect(next.industries.find((i) => i.id === "construction")!.revenue).toBeGreaterThanOrEqual(800);
+  });
+
+  it("are not made while the builder has nothing in stock", () => {
+    const world = step(createWorld(42, { housed: 0.5 }), [...fund(IDS), ...topUp, grant(WORKERS, 5000)]).world;
+    expect(world.industries.find((i) => i.id === "construction")!.lines[0]!.batches.reduce((a, b) => a + b, 0)).toBe(0);
+    const next = run(world, 1);
+    expect(dur(next, WORKERS).houses).toBe(dur(world, WORKERS).houses);
+    expect(moneyLog(next).some((e) => e.cause === "Collateralised Loan")).toBe(false);
+  });
+
   it("use the low secured rate, so the borrower pays less interest than on Retail Credit", () => {
     const rates = commercialBank(createWorld(1)).rates;
     expect(rates.collateralised).toBeLessThan(rates.retail);
     // A higher secured spread makes the same borrowing cost more and earns the bank more.
     const cheap = run(shortOfHouses(), 10);
-    const dear = run(step(createWorld(42, { housed: 0.5 }), [...fund(IDS), ...topUp, grant(WORKERS, 5000), { type: "setSpreads", collateralised: 1 }]).world, 10);
+    const dear = run(stocked(step(createWorld(42, { housed: 0.5 }), [...fund(IDS), ...topUp, grant(WORKERS, 5000), { type: "setSpreads", collateralised: 1 }]).world), 10);
     expect(dur(dear, WORKERS).houses).toBe(dur(cheap, WORKERS).houses);
     expect(commercialBank(dear).equity).toBeGreaterThan(commercialBank(cheap).equity);
     expect(view(dear, WORKERS).money).toBeLessThan(view(cheap, WORKERS).money);
@@ -89,7 +117,7 @@ describe("Collateralised Loans", () => {
 
   it("seize collateral on default, with the bank taking the loss", () => {
     // Retirees have no income of their own, so once the cash they were given runs out they miss payments.
-    let world = step(createWorld(42, { housed: 0.5 }), [...fund(IDS), ...topUp, grant(RETIREES, 300)]).world;
+    let world = stocked(step(createWorld(42, { housed: 0.5 }), [...fund(IDS), ...topUp, grant(RETIREES, 300)]).world);
     let before = dur(world, RETIREES);
     let seized = false;
     for (let t = 0; t < 60 && !seized; t++) {

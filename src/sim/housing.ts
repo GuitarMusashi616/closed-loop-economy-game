@@ -1,6 +1,6 @@
 import { post, type Account, type Ledger, type MoneyEvent, type Transaction, balanceOf } from "./ledger";
 import { lendingCapacity, lendingRates, type BankPolicy } from "./bank";
-import type { Industry } from "./industry";
+import { stockOf, take, type Industry } from "./industry";
 
 /** Durables are owned assets. Units are scaled to the cohort model: one "house" shelters a block of citizens. */
 export const HOUSE_SHELTERS = 1000;
@@ -8,6 +8,11 @@ export const HOUSE_PRICE = 800;
 /** One car per this many citizens. */
 export const CAR_PER = 500;
 export const CAR_PRICE = 300;
+/** What a purchase uses up of the seller's stock: a house is built from `buildings`, a car stands for `machinery` Manufacturing makes. */
+export const DURABLE_INPUT = {
+  houses: { seller: "construction", productId: "buildings", units: 4 },
+  cars: { seller: "manufacturing", productId: "machinery", units: 2 },
+} as const;
 /** Share of the remaining book value lost to depreciation each Tick. */
 const HOUSE_DEPRECIATION = 0.0002;
 const CAR_DEPRECIATION = 0.001;
@@ -88,15 +93,16 @@ export function runHousing<C extends HousingCohort>(
   industries: Industry[],
   policy: BankPolicy,
   tick: number,
-): { ledger: Ledger; cohorts: C[]; events: MoneyEvent[] } {
+): { ledger: Ledger; cohorts: C[]; events: MoneyEvent[]; industries: Industry[]; sales: DurableSales } {
   const events: MoneyEvent[] = [];
+  const sales: DurableSales = { revenue: {}, wanted: {} };
+  let stocked = industries;
   const apply = (tx: Transaction) => {
     const result = post(ledger, tx, tick);
     ledger = result.ledger;
     if (result.event) events.push(result.event);
   };
   const rate = lendingRates(policy).collateralised;
-  const isStarted = (id: string) => industries.some((i) => i.id === id && i.started);
 
   const next = cohorts.map((cohort) => {
     let { houses, cars, securedMissed: missed } = cohort;
@@ -176,7 +182,12 @@ export function runHousing<C extends HousingCohort>(
         houses < housesNeeded(cohort.population) ? ({ kind: "houses", price: HOUSE_PRICE, seller: "construction" } as const)
         : cars < carsWanted(cohort.population) ? ({ kind: "cars", price: CAR_PRICE, seller: "manufacturing" } as const)
         : null;
-      if (buy && isStarted(buy.seller) && lendingCapacity(ledger) >= buy.price) {
+      const input = buy ? DURABLE_INPUT[buy.kind] : null;
+      const seller = input ? stocked.find((i) => i.id === input.seller && i.started) : undefined;
+      const line = seller?.lines.find((l) => l.productId === input!.productId);
+      if (buy && input && line) sales.wanted[input.productId] = (sales.wanted[input.productId] ?? 0) + input.units;
+      // A purchase is a real sale: it needs the seller to have the goods in stock, uses them up, and is the seller's revenue.
+      if (buy && input && seller && line && stockOf(line) >= input.units && lendingCapacity(ledger) >= buy.price) {
         const debt = balanceOf(ledger, owedAccount) + buy.price;
         const payment = Math.ceil(debt / REPAYMENT_TICKS) + Math.ceil((debt * rate) / DAYS_PER_YEAR);
         if (balanceOf(ledger, cash) >= AFFORDABILITY_TICKS * payment) {
@@ -198,6 +209,10 @@ export function runHousing<C extends HousingCohort>(
               { account: `${buy.seller}:equity`, credit: buy.price },
             ],
           });
+          sales.revenue[seller.id] = (sales.revenue[seller.id] ?? 0) + buy.price;
+          stocked = stocked.map((i) =>
+            i.id !== seller.id ? i : { ...i, lines: i.lines.map((l) => (l.productId === input.productId ? { ...l, batches: take(l.batches, input.units) } : l)) },
+          );
           if (buy.kind === "houses") houses += 1;
           else cars += 1;
         }
@@ -205,7 +220,13 @@ export function runHousing<C extends HousingCohort>(
     }
     return { ...cohort, houses, cars, securedMissed: missed };
   });
-  return { ledger, cohorts: next, events };
+  return { ledger, cohorts: next, events, industries: stocked, sales };
+}
+
+/** What the Tick's house and car purchases did to the sellers: their revenue, and the units wanted whether or not they were in stock. */
+export interface DurableSales {
+  revenue: Record<string, number>;
+  wanted: Record<string, number>;
 }
 
 /** Pays each retired cohort `rate` money per citizen from the Treasury, up to what the Treasury holds. */
