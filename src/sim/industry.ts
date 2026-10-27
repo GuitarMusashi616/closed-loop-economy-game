@@ -77,6 +77,8 @@ export interface IndustryView extends Industry {
   money: number;
   loanOwed: number;
   equity: number;
+  /** The Government's Equity Stake, converted from its Industry Loan. */
+  stake: number;
 }
 
 export const stockOf = (line: ProductLine) => line.batches.reduce((s, n) => s + n, 0);
@@ -194,6 +196,8 @@ export interface MarketInputs {
   markups: Record<string, number>;
   /** Working-age Household Cohorts that wages are paid to, in proportion to population. */
   payroll: { id: string; population: number }[];
+  /** Income tax in percent, taken from wages as they are paid. */
+  incomeTax: number;
 }
 
 /** Units of a line the Industry means to make: whatever sells to Households, or what other Industries asked for. */
@@ -237,8 +241,8 @@ export function runIndustry(
   ledger: Ledger,
   inputs: MarketInputs,
   tick: number,
-): { industry: Industry; ledger: Ledger; events: MoneyEvent[]; fills: Record<string, number> } {
-  if (!industry.started) return { industry, ledger, events: [], fills: {} };
+): { industry: Industry; ledger: Ledger; events: MoneyEvent[]; fills: Record<string, number>; incomeTax: number; householdSpending: number } {
+  if (!industry.started) return { industry, ledger, events: [], fills: {}, incomeTax: 0, householdSpending: 0 };
   const acct = industryAccounts(industry);
   const events: MoneyEvent[] = [];
   const apply = (tx: Transaction) => {
@@ -247,6 +251,7 @@ export function runIndustry(
     if (result.event) events.push(result.event);
   };
   const { cohorts, tastes, markups, payroll } = inputs;
+  let incomeTax = 0;
 
   // The wage is discovered first, then the player's Markup / Discount applies on top.
   // Only as many workers are hired as there are inputs and Capacity to keep busy, and money to pay.
@@ -254,10 +259,18 @@ export function runIndustry(
   const headcount = Math.min(labourDemand(industry, balance(ledger, acct.money), markups), Math.floor(industry.workers + 1e-9));
   const wagesPaid = headcount * wage;
   const population = payroll.reduce((s, c) => s + c.population, 0);
-  let unpaid = wagesPaid;
-  payroll.forEach((c, i) => {
-    const amount = i === payroll.length - 1 ? unpaid : Math.floor((wagesPaid * c.population) / population);
-    unpaid -= amount;
+  // Wages (and the income tax withheld from them) are split between working-age cohorts by population.
+  const split = (total: number) => {
+    let left = total;
+    return payroll.map((c, i) => {
+      const part = i === payroll.length - 1 ? left : Math.floor((total * c.population) / population);
+      left -= part;
+      return part;
+    });
+  };
+  const taxDue = split(Math.floor((wagesPaid * inputs.incomeTax) / 100));
+  split(wagesPaid).forEach((amount, i) => {
+    const c = payroll[i]!;
     if (amount <= 0) return;
     apply({
       type: "wages",
@@ -268,6 +281,20 @@ export function runIndustry(
         { account: `${c.id}:equity`, credit: amount },
       ],
     });
+    // Income tax is taken as wages are paid, so it is gone before workers go shopping.
+    const tax = Math.min(taxDue[i]!, balance(ledger, `${c.id}:money`));
+    if (tax > 0) {
+      incomeTax += tax;
+      apply({
+        type: "incomeTax",
+        entries: [
+          { account: `${c.id}:equity`, debit: tax },
+          { account: `${c.id}:money`, credit: tax },
+          { account: "treasury:money", debit: tax },
+          { account: "treasury:equity", credit: tax },
+        ],
+      });
+    }
   });
 
   // Produce from inputs on hand and Capacity, then age and spoil stock.
@@ -357,9 +384,9 @@ export function runIndustry(
   const adjusted = { ...next, targetHeadcount: adjustHeadcount(next) };
   if (adjusted.brokeTicks >= BROKE_AFTER) {
     const failure = fail(adjusted, ledger, tick);
-    return { industry: failure.industry, ledger: failure.ledger, events: [...events, ...failure.events], fills: foodBought };
+    return { industry: failure.industry, ledger: failure.ledger, events: [...events, ...failure.events], fills: foodBought, incomeTax, householdSpending: householdRevenue };
   }
-  return { industry: adjusted, ledger, events, fills: foodBought };
+  return { industry: adjusted, ledger, events, fills: foodBought, incomeTax, householdSpending: householdRevenue };
 }
 
 /**

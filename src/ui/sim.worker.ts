@@ -1,4 +1,4 @@
-import { cohortViews, cohorts, commercialBank, countrySummary, createWorld, sampleCitizen, deserialize, industries, moneyHolders, productMarkets, moneyLog, moneySupply, serialize, step, type Command } from "../sim";
+import { fiscal, sectoralBalance, cohortViews, cohorts, commercialBank, countrySummary, createWorld, sampleCitizen, deserialize, industries, moneyHolders, productMarkets, moneyLog, moneySupply, serialize, step, type Command } from "../sim";
 import type { FromWorker, Snapshot, Speed, ToWorker } from "./protocol";
 
 const TICK_MS = 1000;
@@ -27,6 +27,8 @@ function snapshot(): Snapshot {
     wageMarkup: world.markups.wages ?? 0,
     bank: commercialBank(world),
     queued,
+    fiscal: fiscal(world),
+    sectoral: sectoralBalance(world),
   };
 }
 

@@ -5,6 +5,7 @@ import { isWorkingAge, newLabor, runLabor, type Labor } from "./labor";
 import { industryAccounts, labourDemand, newIndustries, runIndustry, startIndustry, stockOf, type Industry, type IndustryView, type ProductLine } from "./industry";
 import { PRODUCTS, driftTastes, neutralTastes, type Tastes, type Tier } from "./products";
 import { BANK_ACCOUNTS, FOUNDING_BALANCES, bankView, newPolicy, runRetailCredit, type BankPolicy, type CommercialBankView } from "./bank";
+import { NO_FLOWS, checkRate, payTaxAndDividends, stakeAccount, type FiscalFlows, type TaxRates } from "./tax";
 import { checkInvariants, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
 
 export type { MoneyEvent } from "./ledger";
@@ -12,6 +13,7 @@ export { InvariantViolation } from "./ledger";
 export type { IndustryView, ProductLine } from "./industry";
 export type { Tastes, Tier } from "./products";
 export type { BankPolicy, CommercialBankView } from "./bank";
+export type { FiscalFlows, TaxRates } from "./tax";
 
 export type Command =
   | { type: "monetize"; amount: number }
@@ -19,6 +21,10 @@ export type Command =
   | { type: "industryLoan"; industryId: string; amount: number }
   | { type: "setPolicyRate"; rate: number }
   | { type: "setSpreads"; retail?: number; collateralised?: number }
+  /** Income tax (on wages) and corporate tax (on profit) in percent, 0 to 100. Omitted rates stay as they are. */
+  | { type: "setTaxRates"; income?: number; corporate?: number }
+  /** Converts part of an Industry's Industry Loan into an Equity Stake that pays dividends to the Treasury. */
+  | { type: "convertLoan"; industryId: string; amount: number }
   /** A Markup / Discount in percent on a Product id or on "wages", applied after discovery. 0 clears it. */
   | { type: "setMarkup"; target: string; percent: number };
 
@@ -38,6 +44,9 @@ export interface World {
   tastes: Tastes;
   /** Player Markup / Discount in percent, by Product id or "wages". Absent means 0%. */
   markups: Record<string, number>;
+  taxes: TaxRates;
+  /** Taxes and dividends of the latest Tick. */
+  flows: FiscalFlows;
   ledger: Ledger;
   log: MoneyEvent[];
 }
@@ -58,6 +67,7 @@ function accountsFor(industry: Industry): Account[] {
     { id: acct.money, kind: "asset", holder: industry.name, isMoney: true },
     { id: acct.loanOwed, kind: "liability", holder: industry.name, isMoney: false },
     { id: acct.equity, kind: "equity", holder: industry.name, isMoney: false },
+    { id: stakeAccount(industry), kind: "asset", holder: TREASURY, isMoney: false },
   ];
 }
 
@@ -88,6 +98,8 @@ export function createWorld(seed: number, options: { waterCoverage?: number } = 
     policy: newPolicy(),
     tastes: neutralTastes(cohorts.map((c) => c.id)),
     markups: {},
+    taxes: { income: 0, corporate: 0 },
+    flows: NO_FLOWS,
     ledger: withFounding(emptyLedger([
       ...ACCOUNTS,
       ...BANK_ACCOUNTS,
@@ -153,6 +165,7 @@ export function industries(world: World): IndustryView[] {
       money: balances[acct.money] ?? 0,
       loanOwed: balances[acct.loanOwed] ?? 0,
       equity: balances[acct.equity] ?? 0,
+      stake: balances[stakeAccount(industry)] ?? 0,
     };
   });
 }
@@ -214,6 +227,35 @@ export function productMarkets(world: World): ProductMarketView[] {
   });
 }
 
+/** Tax rates and what the latest Tick collected and paid out. */
+export function fiscal(world: World): FiscalFlows & { rates: TaxRates } {
+  return { ...world.flows, rates: world.taxes };
+}
+
+export interface SectoralBalanceView {
+  government: number;
+  households: number;
+  industries: number;
+  commercialBanks: number;
+}
+
+/** Net financial position (assets less liabilities) of each sector, which shows where money sits. */
+export function sectoralBalance(world: World): SectoralBalanceView {
+  const sectorOf = new Map<string, keyof SectoralBalanceView>([[TREASURY, "government"], ["Commercial Bank", "commercialBanks"]]);
+  for (const c of world.cohorts) sectorOf.set(c.name, "households");
+  for (const i of world.industries) sectorOf.set(i.name, "industries");
+  const totals: SectoralBalanceView = { government: 0, households: 0, industries: 0, commercialBanks: 0 };
+  for (const account of world.ledger.accounts) {
+    const sector = sectorOf.get(account.holder);
+    if (!sector || account.kind === "equity") continue;
+    const balance = world.ledger.balances[account.id] ?? 0;
+    totals[sector] += account.kind === "asset" ? balance : -balance;
+  }
+  // An Equity Stake is a claim the Treasury holds on an Industry, so it is that Industry's liability.
+  for (const i of world.industries) totals.industries -= world.ledger.balances[stakeAccount(i)] ?? 0;
+  return totals;
+}
+
 export function moneySupply(world: World): number {
   return ledgerMoneySupply(world.ledger);
 }
@@ -248,6 +290,7 @@ export function deserialize(save: string): World {
   if (!world.labor || world.industries.some((i) => typeof i.workers !== "number")) {
     throw new Error("Save predates the labor market and cannot be loaded");
   }
+  if (!world.taxes || !world.flows) throw new Error("Save predates taxes and cannot be loaded");
   if (!hasWelfareStats(world.cohorts) || typeof world.waterCoverage !== "number") {
     throw new Error("Save predates Welfare Stats and cannot be loaded");
   }
@@ -260,6 +303,7 @@ export function step(world: World, commands: Command[]): { world: World; events:
   let started = world.industries;
   let policy = world.policy;
   let markups = world.markups;
+  let taxes = world.taxes;
   const events: MoneyEvent[] = [];
   const grain: Record<string, number> = {};
   for (const command of commands) {
@@ -267,11 +311,18 @@ export function step(world: World, commands: Command[]): { world: World; events:
       policy = applyPolicy(policy, command);
       continue;
     }
+    if (command.type === "setTaxRates") {
+      taxes = {
+        income: command.income === undefined ? taxes.income : checkRate("Income tax", command.income),
+        corporate: command.corporate === undefined ? taxes.corporate : checkRate("Corporate tax", command.corporate),
+      };
+      continue;
+    }
     if (command.type === "setMarkup") {
       markups = applyMarkupCommand(markups, command);
       continue;
     }
-    const result = post(ledger, toTransaction(world, command), world.tick);
+    const result = post(ledger, toTransaction({ ...world, ledger }, command), world.tick);
     ledger = result.ledger;
     if (result.event) events.push(result.event);
     if (command.type === "industryLoan") {
@@ -290,10 +341,19 @@ export function step(world: World, commands: Command[]): { world: World; events:
     labourDemand(i, ledger.balances[industryAccounts(i).money] ?? 0, markups),
   );
   const payroll = cohortsNext.filter(isWorkingAge);
+  const flows: FiscalFlows = { ...NO_FLOWS };
   const next = market.industries.map((industry) => {
-    const run = runIndustry(industry, ledger, { cohorts: cohortsNext, tastes, markups, payroll }, world.tick);
+    const run = runIndustry(industry, ledger, { cohorts: cohortsNext, tastes, markups, payroll, incomeTax: taxes.income }, world.tick);
     ledger = run.ledger;
     events.push(...run.events);
+    flows.incomeTax += run.incomeTax;
+    flows.householdSpending += run.householdSpending;
+    const payout = payTaxAndDividends(run.industry, ledger, taxes, world.tick);
+    ledger = payout.ledger;
+    events.push(...payout.events);
+    flows.corporateTax += payout.corporateTax;
+    flows.dividendsToOwners += payout.toOwners;
+    flows.dividendsToTreasury += payout.toTreasury;
     for (const [id, units] of Object.entries(run.fills)) grain[id] = (grain[id] ?? 0) + units;
     return run.industry;
   });
@@ -314,7 +374,7 @@ export function step(world: World, commands: Command[]): { world: World; events:
     ).ledger;
   }
   checkInvariants(ledger);
-  return { world: { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: next, labor: market.labor, policy, tastes, markups, ledger, log: [...world.log, ...events] }, events };
+  return { world: { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: next, labor: market.labor, policy, tastes, markups, taxes, flows, ledger, log: [...world.log, ...events] }, events };
 }
 
 function applyMarkupCommand(markups: Record<string, number>, command: Extract<Command, { type: "setMarkup" }>): Record<string, number> {
@@ -341,7 +401,7 @@ function applyPolicy(policy: BankPolicy, command: Extract<Command, { type: "setP
   };
 }
 
-function toTransaction(world: World, command: Exclude<Command, { type: "setPolicyRate" | "setSpreads" | "setMarkup" }>): Transaction {
+function toTransaction(world: World, command: Exclude<Command, { type: "setPolicyRate" | "setSpreads" | "setMarkup" | "setTaxRates" }>): Transaction {
   if (!Number.isSafeInteger(command.amount) || command.amount <= 0) {
     throw new Error(`${command.type} amount must be a positive whole number, got ${command.amount}`);
   }
@@ -356,6 +416,22 @@ function toTransaction(world: World, command: Exclude<Command, { type: "setPolic
           { account: "centralBank:moneyIssued", credit: command.amount },
         ],
       };
+    case "convertLoan": {
+      const industry = world.industries.find((i) => i.id === command.industryId);
+      if (!industry) throw new Error(`Unknown Industry ${command.industryId}`);
+      const acct = industryAccounts(industry);
+      const owed = world.ledger.balances[acct.loanOwed] ?? 0;
+      if (command.amount > owed) throw new Error(`${industry.name} owes only ${owed} on its Industry Loan, so ${command.amount} cannot be converted`);
+      return {
+        type: "equityConversion",
+        entries: [
+          { account: acct.loanOwed, debit: command.amount },
+          { account: "treasury:loansReceivable", credit: command.amount },
+          { account: stakeAccount(industry), debit: command.amount },
+          { account: acct.equity, credit: command.amount },
+        ],
+      };
+    }
     case "industryLoan": {
       const industry = world.industries.find((i) => i.id === command.industryId);
       if (!industry) throw new Error(`Unknown Industry ${command.industryId}`);
