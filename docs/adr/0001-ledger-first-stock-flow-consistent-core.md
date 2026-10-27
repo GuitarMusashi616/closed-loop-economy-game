@@ -1,0 +1,3 @@
+# Ledger-first stock-flow-consistent core
+
+All money movement is a typed double-entry transaction on a ledger. Money is created only by loan issuance and Monetization, and destroyed only by repayment, write-offs and Central Bank debt paydown, each logged. Invariants (assets equal liabilities, only allowed types change the money supply) are checked every Tick. We chose this over a flow-equation model with a separate balance tracker because the game's purpose is to show where money comes from and goes, and a ledger makes leaks impossible by construction. Libraries such as sfcr and pysolve3 serve as test oracles only. See `docs/research/economic-simulation-approaches.md`.
