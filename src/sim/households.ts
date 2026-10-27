@@ -1,4 +1,5 @@
 import { seededRandom } from "./rng";
+import { homelessShare } from "./housing";
 
 export type AgeBand = "young" | "established" | "retired";
 
@@ -23,6 +24,13 @@ export interface Cohort {
   emigrated: number;
   /** Consecutive Ticks the cohort has missed a Retail Credit payment. */
   missedPayments: number;
+  /** Owned durables: houses shelter a block of citizens each (homelessness follows from them). */
+  houses: number;
+  cars: number;
+  /** Consecutive Ticks the cohort has missed a Collateralised Loan payment. */
+  securedMissed: number;
+  /** Lifetime births. */
+  births: number;
 }
 
 export interface CohortView extends Cohort {
@@ -70,6 +78,11 @@ const EMIGRATION_AFTER = 7;
 const EMIGRATION_RATE = 0.01;
 const AGING_RATE = 0.0005;
 const BIRTH_RATE = 0.0003;
+/** Health lost per Tick by a cohort whose citizens are all unhoused. */
+const EXPOSURE_DAMAGE = 2;
+
+/** Births fall off once hunger passes the strain threshold, and stop at 100. */
+const foodSecurity = (hunger: number) => 1 - Math.max(0, hunger - STRAIN_THRESHOLD) / (100 - STRAIN_THRESHOLD);
 
 const clamp = (value: number, lo = 0, hi = 100) => Math.min(hi, Math.max(lo, value));
 
@@ -78,11 +91,16 @@ export function newCohort(id: string, name: string, ageBand: AgeBand, population
     id, name, ageBand, population,
     health: 90, hunger: 0, thirst: 0, homelessness: 0, education,
     poorTicks: 0, deaths: 0, emigrated: 0, missedPayments: 0,
+    houses: 0, cars: 0, securedMissed: 0, births: 0,
   };
 }
 
 export function hasWelfareStats(cohorts: Cohort[]): boolean {
   return cohorts.every((c) => typeof c.health === "number" && typeof c.poorTicks === "number");
+}
+
+export function hasDurables(cohorts: Cohort[]): boolean {
+  return cohorts.every((c) => typeof c.houses === "number" && typeof c.births === "number");
 }
 
 /** A need level moves towards 0 as it is met and towards 100 as it is missing. */
@@ -130,7 +148,10 @@ export function runHouseholds(
     const hunger = needLevel(c.hunger, foodMet);
     const thirst = needLevel(c.thirst, waterCoverage);
     const strain = Math.max(hunger, thirst);
-    const health = strain >= STRAIN_THRESHOLD ? clamp(c.health - STRAIN_DAMAGE * strain) : clamp(c.health + RECOVERY);
+    // Citizens without a house suffer exposure on top of any hunger or thirst.
+    const health = clamp(
+      (strain >= STRAIN_THRESHOLD ? c.health - STRAIN_DAMAGE * strain : c.health + RECOVERY) - EXPOSURE_DAMAGE * c.homelessness,
+    );
 
     const poor = health < POOR_HEALTH || hunger > POOR_NEED || thirst > POOR_NEED;
     const poorTicks = poor ? c.poorTicks + 1 : 0;
@@ -157,9 +178,15 @@ export function runHouseholds(
     const arriving = i > 0 ? moving[i - 1]! : 0;
     return arriving > 0 ? admit(out, arriving, before[i - 1]!) : out;
   });
-  // Births join the youngest cohort, healthy and without schooling.
-  const births = next.length > 0 && next[0]!.health >= DEATH_HEALTH ? Math.round(next[0]!.population * BIRTH_RATE) : 0;
-  if (births > 0) next[0] = admit(next[0]!, births, { health: 100, hunger: 0, thirst: 0, homelessness: 0, education: 0 });
+  // Births join the youngest cohort, healthy and without schooling. They need housing and food security.
+  const young = next[0];
+  const births =
+    young && young.health >= DEATH_HEALTH
+      ? Math.round(young.population * BIRTH_RATE * (1 - young.homelessness) * foodSecurity(young.hunger))
+      : 0;
+  if (young && births > 0) next[0] = { ...admit(young, births, { health: 100, hunger: 0, thirst: 0, homelessness: 0, education: 0 }), births: young.births + births };
+  // Housing is fixed by the houses owned, so homelessness follows population.
+  next = next.map((c) => ({ ...c, homelessness: homelessShare(c.houses, c.population) }));
   for (let i = 0; i < before.length - 1; i++) {
     if (moving[i]! === 0 || before[i]!.population === 0) continue;
     const amount = Math.floor((money(before[i]!.id) * moving[i]!) / before[i]!.population);

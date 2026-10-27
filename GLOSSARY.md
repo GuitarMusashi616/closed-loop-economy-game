@@ -56,6 +56,14 @@ _Avoid_: Credit, mortgage (unless collateralised)
 A Citizen Loan secured by the thing bought, such as a house or car, at a low rate.
 _Avoid_: Mortgage, secured credit
 
+**Durable**:
+A house or car owned by a Household Cohort, held as an asset that depreciates. Houses shelter citizens, so too few means homelessness.
+_Avoid_: Property, goods
+
+**Pension**:
+A per-retiree payment the Treasury makes to retired Household Cohorts at a rate the player sets.
+_Avoid_: Benefit, welfare payment
+
 **Retail Credit**:
 An unsecured Citizen Loan for everyday purchases such as groceries, at the high rate Commercial Banks profit from.
 _Avoid_: Credit card, consumer loan

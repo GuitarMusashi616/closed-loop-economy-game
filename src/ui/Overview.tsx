@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Command } from "../sim";
 import { Citizens } from "./Citizens";
+import { Flows } from "./Flows";
 import { Industries } from "./Industries";
 import { Products } from "./Products";
 import { Research } from "./Research";
@@ -26,6 +27,8 @@ function describe(c: Command): string {
       return `tax rates (income ${c.income ?? "-"}%, corporate ${c.corporate ?? "-"}%)`;
     case "setResearch":
       return `research ${c.technologyIds.join(", ") || "none"}`;
+    case "setPensionRate":
+      return `pension rate ${c.rate}`;
     default:
       return `${c.type} ${c.amount}`;
   }
@@ -43,6 +46,7 @@ export function Overview() {
   const [retailSpread, setRetailSpread] = useState(15);
   const [incomeTax, setIncomeTax] = useState(0);
   const [corporateTax, setCorporateTax] = useState(0);
+  const [pensionRate, setPensionRate] = useState(0);
   const [convertAmount, setConvertAmount] = useState(1000);
   const [grantCohort, setGrantCohort] = useState("cohort-0");
 
@@ -84,7 +88,7 @@ export function Overview() {
   };
 
   if (!snapshot) return <p>Loading…</p>;
-  const { tick, seed, speed, moneySupply, holders, log, cohorts, households, summary, industries, products, wageMarkup, bank, queued, fiscal, sectoral } = snapshot;
+  const { tick, seed, speed, moneySupply, holders, log, cohorts, households, summary, industries, products, wageMarkup, bank, queued, fiscal, sectoral, flows, flowWindow, history, notes } = snapshot;
 
   return (
     <main style={{ fontFamily: "system-ui", maxWidth: 800, margin: "2rem auto", padding: "0 1rem" }}>
@@ -158,6 +162,11 @@ export function Overview() {
         {fiscal.corporateTax.toLocaleString()}, dividends to Owner Cohort {fiscal.dividendsToOwners.toLocaleString()}, to Treasury{" "}
         {fiscal.dividendsToTreasury.toLocaleString()}, Household spending {fiscal.householdSpending.toLocaleString()}
       </p>
+      <h2>Pensions</h2>
+      <p>
+        Payout per retiree per Tick <input type="number" min={0} step={0.05} value={pensionRate} onChange={(e) => setPensionRate(Number(e.target.value))} />{" "}
+        <button onClick={() => send({ type: "command", command: { type: "setPensionRate", rate: pensionRate } })}>Set pension rate</button>
+      </p>
       <h2>Sectoral Balance</h2>
       <table>
         <tbody>
@@ -185,6 +194,15 @@ export function Overview() {
         {bank.lending ? "Lending" : "Not lending (too little equity)"}
       </p>
       {queued.length > 0 && <p>Queued for the next Tick: {queued.map(describe).join(", ")}</p>}
+
+      <Flows
+        flows={flows}
+        window={flowWindow}
+        onWindow={(ticks) => send({ type: "setFlowWindow", ticks })}
+        history={history}
+        notes={notes}
+        productNames={Object.fromEntries(products.map((p) => [p.id, p.name]))}
+      />
 
       <Industries industries={industries} />
       <Research research={snapshot.research} onChoose={(technologyIds) => send({ type: "command", command: { type: "setResearch", technologyIds } })} />
