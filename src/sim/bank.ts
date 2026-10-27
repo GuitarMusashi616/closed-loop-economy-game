@@ -73,7 +73,7 @@ export function bankView(ledger: Ledger, policy: BankPolicy): CommercialBankView
   };
 }
 
-function lendingCapacity(ledger: Ledger): number {
+export function lendingCapacity(ledger: Ledger): number {
   const equity = bal(ledger, "bank:equity");
   if (equity <= 0) return 0;
   return Math.max(0, Math.floor(equity * LEVERAGE) - bal(ledger, "bank:loansReceivable"));

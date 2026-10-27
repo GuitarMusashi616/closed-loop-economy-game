@@ -53,6 +53,13 @@ export const TRANSACTION_TYPES = {
   bondSale: { effect: "none", cause: "Government debt sale" },
   debtRepayment: { effect: "none", cause: "Government debt repayment" },
   debtRetirement: { effect: "destroy", cause: "Debt retirement" },
+  collateralisedLoan: { effect: "create", cause: "Collateralised Loan" },
+  collateralisedRepayment: { effect: "destroy", cause: "Collateralised Loan repayment" },
+  collateralisedInterest: { effect: "none", cause: "Collateralised Loan interest" },
+  durablePurchase: { effect: "none", cause: "Durable purchase" },
+  depreciation: { effect: "none", cause: "Depreciation" },
+  seizure: { effect: "none", cause: "Collateral seizure" },
+  pension: { effect: "none", cause: "Pension" },
 } as const satisfies Record<string, { effect: SupplyEffect; cause: string }>;
 
 export type TransactionType = keyof typeof TRANSACTION_TYPES;
