@@ -1,12 +1,15 @@
 import { seededRandom } from "./rng";
+import { industryAccounts, newAgriculture, runIndustry, type Industry, type IndustryView } from "./industry";
 import { checkInvariants, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
 
 export type { MoneyEvent } from "./ledger";
 export { InvariantViolation } from "./ledger";
+export type { IndustryView } from "./industry";
 
 export type Command =
   | { type: "monetize"; amount: number }
-  | { type: "grant"; cohortId: string; amount: number };
+  | { type: "grant"; cohortId: string; amount: number }
+  | { type: "industryLoan"; industryId: string; amount: number };
 
 export interface Cohort {
   id: string;
@@ -18,6 +21,7 @@ export interface World {
   seed: number;
   tick: number;
   cohorts: Cohort[];
+  industries: Industry[];
   ledger: Ledger;
   log: MoneyEvent[];
 }
@@ -29,7 +33,17 @@ const ACCOUNTS: Account[] = [
   { id: "centralBank:govDebtHeld", kind: "asset", holder: "Central Bank", isMoney: false },
   { id: "treasury:money", kind: "asset", holder: TREASURY, isMoney: true },
   { id: "treasury:debtOwed", kind: "liability", holder: TREASURY, isMoney: false },
+  { id: "treasury:loansReceivable", kind: "asset", holder: TREASURY, isMoney: false },
 ];
+
+function accountsFor(industry: Industry): Account[] {
+  const acct = industryAccounts(industry);
+  return [
+    { id: acct.money, kind: "asset", holder: industry.name, isMoney: true },
+    { id: acct.loanOwed, kind: "liability", holder: industry.name, isMoney: false },
+    { id: acct.equity, kind: "equity", holder: industry.name, isMoney: false },
+  ];
+}
 
 const COHORT_NAMES = ["Young Workers", "Established Families", "Retirees"];
 
@@ -44,17 +58,37 @@ export function createWorld(seed: number): World {
     { id: `${c.id}:money`, kind: "asset", holder: c.name, isMoney: true },
     { id: `${c.id}:equity`, kind: "equity", holder: c.name, isMoney: false },
   ]);
+  const industries = [newAgriculture()];
   return {
     seed,
     tick: 0,
     cohorts,
-    ledger: emptyLedger([...ACCOUNTS, { id: "treasury:equity", kind: "equity", holder: TREASURY, isMoney: false }, ...cohortAccounts]),
+    industries,
+    ledger: emptyLedger([
+      ...ACCOUNTS,
+      { id: "treasury:equity", kind: "equity", holder: TREASURY, isMoney: false },
+      ...cohortAccounts,
+      ...industries.flatMap(accountsFor),
+    ]),
     log: [],
   };
 }
 
 export function cohorts(world: World): Cohort[] {
   return world.cohorts;
+}
+
+export function industries(world: World): IndustryView[] {
+  return world.industries.map((industry) => {
+    const acct = industryAccounts(industry);
+    const { balances } = world.ledger;
+    return {
+      ...industry,
+      money: balances[acct.money] ?? 0,
+      loanOwed: balances[acct.loanOwed] ?? 0,
+      equity: balances[acct.equity] ?? 0,
+    };
+  });
 }
 
 export function moneySupply(world: World): number {
@@ -80,20 +114,31 @@ export function serialize(world: World): string {
 /** Restores a saved world, throwing if its ledger fails the invariants. */
 export function deserialize(save: string): World {
   const world = JSON.parse(save) as World;
+  if (!Array.isArray(world.industries)) throw new Error("Save predates Industries and cannot be loaded");
   checkInvariants(world.ledger);
   return world;
 }
 
 export function step(world: World, commands: Command[]): { world: World; events: MoneyEvent[] } {
   let ledger = world.ledger;
+  let started = world.industries;
   const events: MoneyEvent[] = [];
   for (const command of commands) {
     const result = post(ledger, toTransaction(world, command), world.tick);
     ledger = result.ledger;
     if (result.event) events.push(result.event);
+    if (command.type === "industryLoan") {
+      started = started.map((i) => (i.id === command.industryId ? { ...i, started: true } : i));
+    }
   }
+  const next = started.map((industry) => {
+    const run = runIndustry(industry, ledger, world.cohorts, world.tick);
+    ledger = run.ledger;
+    events.push(...run.events);
+    return run.industry;
+  });
   checkInvariants(ledger);
-  return { world: { ...world, tick: world.tick + 1, ledger, log: [...world.log, ...events] }, events };
+  return { world: { ...world, tick: world.tick + 1, industries: next, ledger, log: [...world.log, ...events] }, events };
 }
 
 function toTransaction(world: World, command: Command): Transaction {
@@ -111,6 +156,20 @@ function toTransaction(world: World, command: Command): Transaction {
           { account: "centralBank:moneyIssued", credit: command.amount },
         ],
       };
+    case "industryLoan": {
+      const industry = world.industries.find((i) => i.id === command.industryId);
+      if (!industry) throw new Error(`Unknown Industry ${command.industryId}`);
+      const acct = industryAccounts(industry);
+      return {
+        type: "industryLoan",
+        entries: [
+          { account: "treasury:loansReceivable", debit: command.amount },
+          { account: "treasury:money", credit: command.amount },
+          { account: acct.money, debit: command.amount },
+          { account: acct.loanOwed, credit: command.amount },
+        ],
+      };
+    }
     case "grant": {
       if (!world.cohorts.some((c) => c.id === command.cohortId)) {
         throw new Error(`Unknown Household Cohort ${command.cohortId}`);

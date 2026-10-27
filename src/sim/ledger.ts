@@ -22,6 +22,9 @@ export type SupplyEffect = "create" | "destroy" | "none";
 export const TRANSACTION_TYPES = {
   monetization: { effect: "create", cause: "Monetization" },
   grant: { effect: "none", cause: "Grant" },
+  industryLoan: { effect: "none", cause: "Industry Loan" },
+  wages: { effect: "none", cause: "Wages" },
+  sale: { effect: "none", cause: "Sale" },
 } as const satisfies Record<string, { effect: SupplyEffect; cause: string }>;
 
 export type TransactionType = keyof typeof TRANSACTION_TYPES;

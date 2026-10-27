@@ -3,6 +3,7 @@ import {
   cohorts,
   createWorld,
   deserialize,
+  industries,
   InvariantViolation,
   moneyHolders,
   moneyLog,
@@ -91,5 +92,77 @@ describe("determinism and saves", () => {
     const save = JSON.parse(serialize(run(createWorld(7), script)));
     save.ledger.balances["treasury:money"] += 1;
     expect(() => deserialize(JSON.stringify(save))).toThrow(InvariantViolation);
+  });
+});
+
+describe("Agriculture", () => {
+  const industry = (world: ReturnType<typeof createWorld>) => industries(world).find((i) => i.id === "agriculture")!;
+  const funded = () => step(createWorld(42), [{ type: "monetize", amount: 2000 }, { type: "industryLoan", industryId: "agriculture", amount: 1000 }]).world;
+
+  it("does nothing until it is started by an Industry Loan", () => {
+    const { world } = step(createWorld(42), [{ type: "monetize", amount: 2000 }]);
+    expect(industry(world)).toMatchObject({ started: false, headcount: 0, stock: 0 });
+  });
+
+  it("is funded by an Industry Loan, which moves money without creating any", () => {
+    const world = funded();
+    expect(moneySupply(world)).toBe(2000);
+    expect(industry(world).loanOwed).toBe(1000);
+    expect(moneyHolders(world).find((h) => h.holder === "Treasury")?.balance).toBe(1000);
+  });
+
+  it("rejects a loan the Treasury cannot cover", () => {
+    expect(() => step(createWorld(42), [{ type: "industryLoan", industryId: "agriculture", amount: 5 }])).toThrow(/negative/);
+  });
+
+  it("rejects a loan to an unknown Industry", () => {
+    expect(() => step(createWorld(42), [{ type: "industryLoan", industryId: "nope", amount: 5 }])).toThrow(/Unknown Industry/);
+  });
+
+  it("bootstraps from zero money to a first sale: hires, pays wages, produces and sells grain", () => {
+    const world = funded();
+    const a = industry(world);
+    expect(a.headcount).toBeGreaterThan(0);
+    expect(a.wagesPaid).toBe(a.headcount * a.wage);
+    expect(a.sold).toBeGreaterThan(0);
+    expect(a.price).toBeGreaterThan(0);
+    expect(a.stock).toBe(a.produced - a.sold);
+    // Wages reached the cohort and the sale returned money to the Industry.
+    const cohortMoney = moneyHolders(world).find((h) => h.holder === cohorts(world)[0]!.name)!.balance;
+    expect(cohortMoney).toBe(a.wagesPaid - a.sold * a.price);
+    expect(a.money).toBe(1000 - a.wagesPaid + a.sold * a.price);
+  });
+
+  it("keeps the money supply fixed while money circulates over many Ticks", () => {
+    let world = funded();
+    for (let i = 0; i < 60; i++) world = step(world, []).world;
+    expect(moneySupply(world)).toBe(2000);
+    expect(industry(world).money).toBeGreaterThanOrEqual(0);
+  });
+
+  it("discovers a price from demand, not from cost: a richer cohort pays more for the same grain", () => {
+    const priceWith = (grant: number) => {
+      let world = step(createWorld(42), [
+        { type: "monetize", amount: 100_000 },
+        { type: "grant", cohortId: "cohort-0", amount: grant },
+        { type: "industryLoan", industryId: "agriculture", amount: 1000 },
+      ]).world;
+      world = step(world, []).world;
+      return industry(world).price;
+    };
+    expect(priceWith(50_000)).toBeGreaterThan(priceWith(1));
+  });
+
+  it("is deterministic and survives a save", () => {
+    const a = serialize(funded());
+    expect(a).toBe(serialize(funded()));
+    const loaded = deserialize(a);
+    expect(serialize(step(loaded, []).world)).toBe(serialize(step(funded(), []).world));
+  });
+
+  it("rejects a save that predates Industries", () => {
+    const save = JSON.parse(serialize(createWorld(7)));
+    delete save.industries;
+    expect(() => deserialize(JSON.stringify(save))).toThrow(/Industries/);
   });
 });

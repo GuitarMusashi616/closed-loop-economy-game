@@ -1,4 +1,4 @@
-import type { Cohort, Command, MoneyEvent } from "../sim";
+import type { Cohort, Command, IndustryView, MoneyEvent } from "../sim";
 
 export type Speed = 0 | 1 | 2 | 4;
 
@@ -17,6 +17,7 @@ export interface Snapshot {
   holders: { holder: string; balance: number }[];
   log: MoneyEvent[];
   cohorts: Cohort[];
+  industries: IndustryView[];
   queued: Command[];
 }
 

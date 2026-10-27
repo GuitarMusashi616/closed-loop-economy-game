@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Industries } from "./Industries";
 import type { FromWorker, Snapshot, Speed, ToWorker } from "./protocol";
 
 const SPEEDS: { label: string; speed: Speed }[] = [
@@ -14,6 +15,7 @@ export function Overview() {
   const [error, setError] = useState<string>();
   const [monetizeAmount, setMonetizeAmount] = useState(1000);
   const [grantAmount, setGrantAmount] = useState(100);
+  const [loanAmount, setLoanAmount] = useState(1000);
   const [grantCohort, setGrantCohort] = useState("cohort-0");
 
   useEffect(() => {
@@ -52,7 +54,7 @@ export function Overview() {
   };
 
   if (!snapshot) return <p>Loading…</p>;
-  const { tick, seed, speed, moneySupply, holders, log, cohorts, queued } = snapshot;
+  const { tick, seed, speed, moneySupply, holders, log, cohorts, industries, queued } = snapshot;
 
   return (
     <main style={{ fontFamily: "system-ui", maxWidth: 800, margin: "2rem auto", padding: "0 1rem" }}>
@@ -103,9 +105,17 @@ export function Overview() {
           Grant
         </button>
       </p>
+      <p>
+        <input type="number" min={1} value={loanAmount} onChange={(e) => setLoanAmount(Number(e.target.value))} />{" "}
+        <button onClick={() => send({ type: "command", command: { type: "industryLoan", industryId: "agriculture", amount: loanAmount } })}>
+          Industry Loan to Agriculture
+        </button>
+      </p>
       {queued.length > 0 && (
         <p>Queued for the next Tick: {queued.map((c) => `${c.type} ${c.amount}`).join(", ")}</p>
       )}
+
+      <Industries industries={industries} />
 
       <h2>Money created and destroyed</h2>
       {log.length === 0 ? (
