@@ -24,6 +24,7 @@ export const TRANSACTION_TYPES = {
   grant: { effect: "none", cause: "Grant" },
   industryLoan: { effect: "none", cause: "Industry Loan" },
   wages: { effect: "none", cause: "Wages" },
+  ageing: { effect: "none", cause: "Ageing" },
   sale: { effect: "none", cause: "Sale" },
 } as const satisfies Record<string, { effect: SupplyEffect; cause: string }>;
 

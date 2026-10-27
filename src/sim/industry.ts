@@ -1,4 +1,5 @@
 import { post, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
+import { GRAIN_NEED_PER_HEAD } from "./households";
 import { clearAuction, type Buyer } from "./market";
 
 export interface Industry {
@@ -30,8 +31,6 @@ export interface IndustryView extends Industry {
 export const WORKER_COHORT = "cohort-0";
 /** Willingness to Pay for the most urgent unit of grain. */
 const GRAIN_MAX_WTP = 20;
-/** Units of grain a cohort wants per day, per head. */
-const GRAIN_NEED_PER_HEAD = 0.01;
 
 export function newAgriculture(): Industry {
   return {
@@ -69,8 +68,8 @@ export function runIndustry(
   ledger: Ledger,
   cohorts: { id: string; population: number }[],
   tick: number,
-): { industry: Industry; ledger: Ledger; events: MoneyEvent[] } {
-  if (!industry.started) return { industry, ledger, events: [] };
+): { industry: Industry; ledger: Ledger; events: MoneyEvent[]; fills: Record<string, number> } {
+  if (!industry.started) return { industry, ledger, events: [], fills: {} };
   const acct = industryAccounts(industry);
   const events: MoneyEvent[] = [];
   const apply = (tx: Transaction) => {
@@ -139,5 +138,6 @@ export function runIndustry(
     },
     ledger,
     events,
+    fills: auction.fills,
   };
 }

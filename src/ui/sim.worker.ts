@@ -1,4 +1,4 @@
-import { cohorts, createWorld, deserialize, industries, moneyHolders, moneyLog, moneySupply, serialize, step, type Command } from "../sim";
+import { cohortViews, cohorts, countrySummary, createWorld, sampleCitizen, deserialize, industries, moneyHolders, moneyLog, moneySupply, serialize, step, type Command } from "../sim";
 import type { FromWorker, Snapshot, Speed, ToWorker } from "./protocol";
 
 const TICK_MS = 1000;
@@ -6,6 +6,7 @@ const TICK_MS = 1000;
 let world = createWorld(Math.floor(Math.random() * 2 ** 31));
 let speed: Speed = 0;
 let queued: Command[] = [];
+let zoomSlot = 0;
 let timer: ReturnType<typeof setInterval> | undefined;
 
 const send = (message: FromWorker) => postMessage(message);
@@ -19,6 +20,8 @@ function snapshot(): Snapshot {
     holders: moneyHolders(world),
     log: moneyLog(world),
     cohorts: cohorts(world),
+    households: cohortViews(world),
+    summary: countrySummary(world),
     industries: industries(world),
     queued,
   };
@@ -55,6 +58,14 @@ onmessage = (event: MessageEvent<ToWorker>) => {
       speed = message.speed;
       applySpeed();
       break;
+    case "zoom":
+      try {
+        // A fresh slot each time so repeated zooms show different Citizens.
+        send({ type: "citizen", citizen: sampleCitizen(world, message.cohortId, zoomSlot++) });
+      } catch (error) {
+        send({ type: "error", message: String(error instanceof Error ? error.message : error) });
+      }
+      return;
     case "save":
       send({ type: "saved", save: serialize(world) });
       return;
