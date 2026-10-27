@@ -71,13 +71,15 @@ function skillFor(skills: Record<string, number>, target: Industry, all: Industr
 /**
  * The labor market for one Tick: job matching as a flow between pools of workers (the unemployed
  * and the employees of each Industry), then wages adjust to whether jobs could be filled.
- * `demand` is how many workers each Industry wants.
+ * `demand` is how many workers each Industry wants. `floorScale` (at most 1) lowers the wage floor and ceiling
+ * when prices have fallen, so wages can follow them down.
  */
 export function runLabor(
   industries: Industry[],
   cohorts: Cohort[],
   labor: Labor,
   demand: (industry: Industry) => number,
+  floorScale = 1,
 ): { industries: Industry[]; labor: Labor } {
   const force = cohorts.filter(isWorkingAge).reduce((s, c) => s + c.population, 0);
   const wanted = new Map(industries.map((i) => [i.id, i.started && !i.failed ? Math.max(0, demand(i)) : 0]));
@@ -124,7 +126,7 @@ export function runLabor(
   const next = industries.map((i): Industry => {
     const pool = pools.get(i.id)!;
     const want = wanted.get(i.id)!;
-    const floor = wageFloor(i.experienceType);
+    const floor = Math.max(1, Math.round(wageFloor(i.experienceType) * floorScale));
     let wage = i.wage;
     if (want > 0 && pool.count < want - 1e-9) wage = Math.min(floor * WAGE_CEILING, wage + Math.max(1, Math.ceil(wage * WAGE_RISE)));
     else if (want > 0) wage = Math.max(floor, wage - Math.max(1, Math.floor(wage * WAGE_FALL)));

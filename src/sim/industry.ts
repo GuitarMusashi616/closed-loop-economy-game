@@ -162,6 +162,11 @@ function build(def: IndustryDef): Industry {
   };
 }
 
+/** The ask an Industry opened with for a Product, the base for the price index. */
+export function startingAsk(industryId: string, productId: string): number {
+  return DEFS.find((d) => d.id === industryId)?.lines.find((l) => l.productId === productId)?.ask ?? 1;
+}
+
 export function newIndustries(): Industry[] {
   return DEFS.map(build);
 }
