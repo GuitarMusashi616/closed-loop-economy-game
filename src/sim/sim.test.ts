@@ -13,6 +13,7 @@ import {
   step,
   type Command,
 } from "./index";
+import { stockOf } from "./industry";
 
 describe("a new world", () => {
   it("starts with no money", () => {
@@ -102,7 +103,8 @@ describe("Agriculture", () => {
 
   it("does nothing until it is started by an Industry Loan", () => {
     const { world } = step(createWorld(42), [{ type: "monetize", amount: 2000 }]);
-    expect(industry(world)).toMatchObject({ started: false, headcount: 0, stock: 0 });
+    expect(industry(world)).toMatchObject({ started: false, headcount: 0 });
+    expect(industry(world).lines.every((l) => l.batches.length === 0)).toBe(true);
   });
 
   it("is funded by an Industry Loan, which moves money without creating any", () => {
@@ -126,11 +128,12 @@ describe("Agriculture", () => {
     const a = industry(world);
     expect(a.headcount).toBeGreaterThan(0);
     expect(a.wagesPaid).toBe(a.headcount * a.wage);
-    expect(a.sold).toBeGreaterThan(0);
-    expect(a.price).toBeGreaterThan(0);
-    expect(a.stock).toBe(a.produced - a.sold);
-    // The sale returned money to the Industry.
-    expect(a.money).toBe(1000 - a.wagesPaid + a.sold * a.price);
+    const grain = a.lines.find((l) => l.productId === "grain")!;
+    expect(grain.sold).toBeGreaterThan(0);
+    expect(grain.price).toBeGreaterThan(0);
+    expect(stockOf(grain)).toBe(grain.produced - grain.sold);
+    // The sales returned money to the Industry.
+    expect(a.money).toBe(1000 - a.wagesPaid + a.lines.reduce((s, l) => s + l.sold * l.price, 0));
   });
 
   it("keeps the money supply fixed while money circulates over many Ticks", () => {
@@ -142,7 +145,8 @@ describe("Agriculture", () => {
 
   it("discovers a price from demand, not from cost: the price rises above unit cost", () => {
     const a = industry(step(funded(), []).world);
-    expect(a.price).toBeGreaterThan(a.wage / a.unitsPerWorker);
+    const grain = a.lines.find((l) => l.productId === "grain")!;
+    expect(grain.price).toBeGreaterThan(a.wage / grain.yield);
   });
 
   it("is deterministic and survives a save", () => {

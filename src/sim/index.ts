@@ -1,12 +1,14 @@
 import { hasWelfareStats, newCohort, runHouseholds, sampleCitizenOf, type Citizen, type Cohort, type CohortView, type CountrySummary } from "./households";
 import { seededRandom } from "./rng";
-import { industryAccounts, newAgriculture, runIndustry, type Industry, type IndustryView } from "./industry";
+import { industryAccounts, newAgriculture, runIndustry, stockOf, type Industry, type IndustryView, type ProductLine } from "./industry";
+import { PRODUCTS, driftTastes, neutralTastes, type Tastes, type Tier } from "./products";
 import { BANK_ACCOUNTS, FOUNDING_BALANCES, bankView, newPolicy, runRetailCredit, type BankPolicy, type CommercialBankView } from "./bank";
 import { checkInvariants, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
 
 export type { MoneyEvent } from "./ledger";
 export { InvariantViolation } from "./ledger";
-export type { IndustryView } from "./industry";
+export type { IndustryView, ProductLine } from "./industry";
+export type { Tastes, Tier } from "./products";
 export type { BankPolicy, CommercialBankView } from "./bank";
 
 export type Command =
@@ -14,7 +16,9 @@ export type Command =
   | { type: "grant"; cohortId: string; amount: number }
   | { type: "industryLoan"; industryId: string; amount: number }
   | { type: "setPolicyRate"; rate: number }
-  | { type: "setSpreads"; retail?: number; collateralised?: number };
+  | { type: "setSpreads"; retail?: number; collateralised?: number }
+  /** A Markup / Discount in percent on a Product id or on "wages", applied after discovery. 0 clears it. */
+  | { type: "setMarkup"; target: string; percent: number };
 
 export type { AgeBand, Citizen, Cohort, CohortView, CountrySummary } from "./households";
 
@@ -26,6 +30,10 @@ export interface World {
   waterCoverage: number;
   industries: Industry[];
   policy: BankPolicy;
+  /** Cohort taste multipliers per Product, which drift each Tick. */
+  tastes: Tastes;
+  /** Player Markup / Discount in percent, by Product id or "wages". Absent means 0%. */
+  markups: Record<string, number>;
   ledger: Ledger;
   log: MoneyEvent[];
 }
@@ -73,6 +81,8 @@ export function createWorld(seed: number, options: { waterCoverage?: number } = 
     waterCoverage: options.waterCoverage ?? 1,
     industries,
     policy: newPolicy(),
+    tastes: neutralTastes(cohorts.map((c) => c.id)),
+    markups: {},
     ledger: withFounding(emptyLedger([
       ...ACCOUNTS,
       ...BANK_ACCOUNTS,
@@ -141,6 +151,48 @@ export function industries(world: World): IndustryView[] {
   });
 }
 
+export interface ProductMarketView {
+  id: string;
+  name: string;
+  tier: Tier;
+  /** Units that were for sale this Tick across all Industries, before sales. */
+  supply: number;
+  /** Units cohorts wanted at the clearing price. */
+  demand: number;
+  produced: number;
+  sold: number;
+  spoiled: number;
+  /** Units still in stock. */
+  stock: number;
+  /** Latest price paid, after Markup / Discount, or 0 if never sold. */
+  price: number;
+  /** The player's Markup / Discount in percent. */
+  markup: number;
+}
+
+/** Supply and demand for every Product, for inspection. */
+export function productMarkets(world: World): ProductMarketView[] {
+  return PRODUCTS.map((def) => {
+    const lines = world.industries.flatMap((i) => i.lines.filter((l): l is ProductLine => l.productId === def.id));
+    const sum = (pick: (l: ProductLine) => number) => lines.reduce((s, l) => s + pick(l), 0);
+    const sold = sum((l) => l.sold);
+    const priced = lines.filter((l) => l.price > 0);
+    return {
+      id: def.id,
+      name: def.name,
+      tier: def.tier,
+      supply: sum((l) => stockOf(l)) + sold,
+      demand: sum((l) => l.demand),
+      produced: sum((l) => l.produced),
+      sold,
+      spoiled: sum((l) => l.spoiled),
+      stock: sum((l) => stockOf(l)),
+      price: priced.length > 0 ? Math.max(...priced.map((l) => l.price)) : 0,
+      markup: world.markups[def.id] ?? 0,
+    };
+  });
+}
+
 export function moneySupply(world: World): number {
   return ledgerMoneySupply(world.ledger);
 }
@@ -166,6 +218,9 @@ export function deserialize(save: string): World {
   const world = JSON.parse(save) as World;
   if (!Array.isArray(world.industries)) throw new Error("Save predates Industries and cannot be loaded");
   if (!world.policy) throw new Error("Save predates the Commercial Bank and cannot be loaded");
+  if (!world.markups || !world.tastes || world.industries.some((i) => !Array.isArray(i.lines))) {
+    throw new Error("Save predates the Full Product market and cannot be loaded");
+  }
   if (!hasWelfareStats(world.cohorts) || typeof world.waterCoverage !== "number") {
     throw new Error("Save predates Welfare Stats and cannot be loaded");
   }
@@ -177,11 +232,16 @@ export function step(world: World, commands: Command[]): { world: World; events:
   let ledger = world.ledger;
   let started = world.industries;
   let policy = world.policy;
+  let markups = world.markups;
   const events: MoneyEvent[] = [];
   const grain: Record<string, number> = {};
   for (const command of commands) {
     if (command.type === "setPolicyRate" || command.type === "setSpreads") {
       policy = applyPolicy(policy, command);
+      continue;
+    }
+    if (command.type === "setMarkup") {
+      markups = applyMarkupCommand(markups, command);
       continue;
     }
     const result = post(ledger, toTransaction(world, command), world.tick);
@@ -195,8 +255,9 @@ export function step(world: World, commands: Command[]): { world: World; events:
   ledger = credit.ledger;
   events.push(...credit.events);
   const cohortsNext = credit.cohorts;
+  const tastes = driftTastes(world.tastes, world.seed, world.tick);
   const next = started.map((industry) => {
-    const run = runIndustry(industry, ledger, cohortsNext, world.tick);
+    const run = runIndustry(industry, ledger, { cohorts: cohortsNext, tastes, markups }, world.tick);
     ledger = run.ledger;
     events.push(...run.events);
     for (const [id, units] of Object.entries(run.fills)) grain[id] = (grain[id] ?? 0) + units;
@@ -219,7 +280,17 @@ export function step(world: World, commands: Command[]): { world: World; events:
     ).ledger;
   }
   checkInvariants(ledger);
-  return { world: { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: next, policy, ledger, log: [...world.log, ...events] }, events };
+  return { world: { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: next, policy, tastes, markups, ledger, log: [...world.log, ...events] }, events };
+}
+
+function applyMarkupCommand(markups: Record<string, number>, command: Extract<Command, { type: "setMarkup" }>): Record<string, number> {
+  if (command.target !== "wages" && !PRODUCTS.some((p) => p.id === command.target)) {
+    throw new Error(`Unknown Markup target ${command.target}`);
+  }
+  if (!Number.isFinite(command.percent) || command.percent <= -100) {
+    throw new Error(`Markup / Discount must be a number above -100%, got ${command.percent}`);
+  }
+  return { ...markups, [command.target]: command.percent };
 }
 
 function applyPolicy(policy: BankPolicy, command: Extract<Command, { type: "setPolicyRate" | "setSpreads" }>): BankPolicy {
@@ -236,7 +307,7 @@ function applyPolicy(policy: BankPolicy, command: Extract<Command, { type: "setP
   };
 }
 
-function toTransaction(world: World, command: Exclude<Command, { type: "setPolicyRate" | "setSpreads" }>): Transaction {
+function toTransaction(world: World, command: Exclude<Command, { type: "setPolicyRate" | "setSpreads" | "setMarkup" }>): Transaction {
   if (!Number.isSafeInteger(command.amount) || command.amount <= 0) {
     throw new Error(`${command.type} amount must be a positive whole number, got ${command.amount}`);
   }

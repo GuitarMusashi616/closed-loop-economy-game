@@ -100,7 +100,7 @@ export function runRetailCredit<C extends CohortCredit>(
     if (result.event) events.push(result.event);
   };
   const rate = lendingRates(policy).retail;
-  const asks = industries.filter((i) => i.started).map((i) => i.ask);
+  const asks = industries.filter((i) => i.started).flatMap((i) => i.lines.filter((l) => l.productId === "grain").map((l) => l.ask));
   const foodPrice = asks.length > 0 ? Math.min(...asks) : 0;
 
   const next = cohorts.map((cohort) => {

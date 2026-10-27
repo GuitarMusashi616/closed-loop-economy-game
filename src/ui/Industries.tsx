@@ -1,3 +1,4 @@
+import { stockOf } from "../sim/industry";
 import type { IndustryView } from "../sim";
 
 export function Industries({ industries }: { industries: IndustryView[] }) {
@@ -11,8 +12,7 @@ export function Industries({ industries }: { industries: IndustryView[] }) {
             <th align="right">Money</th>
             <th align="right">Loan owed</th>
             <th align="right">Equity</th>
-            <th align="right">Grain stock</th>
-            <th align="right">Price</th>
+            <th align="right">Food stock</th>
             <th align="right">Wage</th>
             <th align="right">Headcount</th>
           </tr>
@@ -24,8 +24,7 @@ export function Industries({ industries }: { industries: IndustryView[] }) {
               <td align="right">{i.money.toLocaleString()}</td>
               <td align="right">{i.loanOwed.toLocaleString()}</td>
               <td align="right">{i.equity.toLocaleString()}</td>
-              <td align="right">{i.stock.toLocaleString()}</td>
-              <td align="right">{i.price > 0 ? i.price.toLocaleString() : "–"}</td>
+              <td align="right">{i.lines.reduce((s, l) => s + stockOf(l), 0).toLocaleString()}</td>
               <td align="right">{i.wage.toLocaleString()}</td>
               <td align="right">{i.headcount.toLocaleString()}</td>
             </tr>

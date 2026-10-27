@@ -12,6 +12,8 @@ export interface Buyer {
 export interface AuctionResult {
   price: number;
   quantity: number;
+  /** Units buyers wanted at the clearing price, whether or not there was stock for them. */
+  demand: number;
   fills: Record<string, number>;
 }
 
@@ -38,8 +40,8 @@ function demandAt(buyers: Buyer[], price: number): number {
  */
 export function clearAuction(buyers: Buyer[], supply: number, ask: number): AuctionResult {
   const floor = Math.max(1, Math.ceil(ask));
-  const none: AuctionResult = { price: floor, quantity: 0, fills: {} };
-  if (supply <= 0 || demandAt(buyers, floor) === 0) return none;
+  const none: AuctionResult = { price: floor, quantity: 0, demand: 0, fills: {} };
+  if (supply <= 0 || demandAt(buyers, floor) === 0) return { ...none, demand: demandAt(buyers, floor) };
 
   let price = floor;
   if (demandAt(buyers, floor) > supply) {
@@ -65,5 +67,5 @@ export function clearAuction(buyers: Buyer[], supply: number, ask: number): Auct
     }
   }
   for (const id of Object.keys(fills)) if (fills[id] === 0) delete fills[id];
-  return { price, quantity, fills };
+  return { price, quantity, demand: demandAt(buyers, floor), fills };
 }

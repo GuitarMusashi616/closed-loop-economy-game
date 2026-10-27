@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Command } from "../sim";
 import { Citizens } from "./Citizens";
 import { Industries } from "./Industries";
+import { Products } from "./Products";
 import type { Citizen } from "../sim";
 import type { FromWorker, Snapshot, Speed, ToWorker } from "./protocol";
 
@@ -18,6 +19,8 @@ function describe(c: Command): string {
       return `Policy Rate ${(c.rate * 100).toFixed(1)}%`;
     case "setSpreads":
       return "rate spreads";
+    case "setMarkup":
+      return `${c.target} markup ${c.percent}%`;
     default:
       return `${c.type} ${c.amount}`;
   }
@@ -73,7 +76,7 @@ export function Overview() {
   };
 
   if (!snapshot) return <p>Loading…</p>;
-  const { tick, seed, speed, moneySupply, holders, log, cohorts, households, summary, industries, bank, queued } = snapshot;
+  const { tick, seed, speed, moneySupply, holders, log, cohorts, households, summary, industries, products, wageMarkup, bank, queued } = snapshot;
 
   return (
     <main style={{ fontFamily: "system-ui", maxWidth: 800, margin: "2rem auto", padding: "0 1rem" }}>
@@ -150,6 +153,11 @@ export function Overview() {
       {queued.length > 0 && <p>Queued for the next Tick: {queued.map(describe).join(", ")}</p>}
 
       <Industries industries={industries} />
+      <Products
+        products={products}
+        wageMarkup={wageMarkup}
+        onMarkup={(target, percent) => send({ type: "command", command: { type: "setMarkup", target, percent } })}
+      />
 
       <Citizens
         households={households}
