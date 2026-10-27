@@ -208,7 +208,7 @@ describe("Sectoral Balance", () => {
     const spend = (w0: World, commands: Command[]) => {
       let w = run(w0, 1, commands);
       let total = 0;
-      for (let t = 0; t < 30; t++) {
+      for (let t = 0; t < 60; t++) {
         w = step(w, []).world;
         total += fiscal(w).householdSpending;
       }
