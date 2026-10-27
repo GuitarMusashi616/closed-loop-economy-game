@@ -7,7 +7,7 @@ const BRANCHES: { id: TechnologyView["branch"]; name: string }[] = [
   { id: "society", name: "Society" },
 ];
 
-/** The tech tree by branch, with progress, and the controls for choosing the active Technologies. */
+/** The Technology tree by branch, with progress, and the controls for choosing the active Technologies. */
 export function Research({ research, onChoose }: { research: ResearchView; onChoose: (technologyIds: string[]) => void }) {
   const name = (id: string) => research.technologies.find((t) => t.id === id)?.name ?? id;
   const toggle = (t: TechnologyView) =>

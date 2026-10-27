@@ -46,7 +46,7 @@ export type Command =
   | { type: "setPublicFunding"; service: PublicService; percent: number }
   /** Whether the Government offers Tuition Loans at the Policy Rate. */
   | { type: "setGovernmentEducationLoans"; enabled: boolean }
-  /** Sells Government debt to "bank" or a Household Cohort id for their cash. Money only changes hands. */
+  /** Sells Government debt to the Commercial Bank (holder id "bank") or a Household Cohort id for their cash. Money only changes hands. */
   | { type: "issueDebt"; holder: string; amount: number }
   /** Pays Treasury cash to retire debt. Debt held by "centralBank" destroys money; any other holder just gets cash back. */
   | { type: "retireDebt"; holder: string; amount: number }
@@ -239,7 +239,7 @@ export function sampleCitizen(world: World, cohortId: string, slot: number): Cit
   return sampleCitizenOf(cohort, world.seed, slot);
 }
 
-/** The tech tree with each Technology's progress and status, and how fast the Research Labs are working. */
+/** The Technology tree with each Technology's progress and status, and how fast the Research Labs are working. */
 export function research(world: World): ResearchView {
   return researchView(world.research, world.industries);
 }

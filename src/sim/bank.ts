@@ -17,7 +17,7 @@ export interface CommercialBankView {
   deposits: number;
   money: number;
   equity: number;
-  /** Whether the bank has the equity to make any new loan. */
+  /** Whether the Commercial Bank has the equity to make any new loan. */
   lending: boolean;
 }
 
@@ -135,7 +135,7 @@ export function runRetailCredit<C extends CohortCredit>(
         });
       } else if (++missed >= DEFAULT_AFTER) {
         missed = 0;
-        // The loss is paid out of the bank's own cash where it has any, which retires those deposits.
+        // The loss is paid out of the Commercial Bank's own cash where it has any, which retires those deposits.
         const destroyed = Math.min(owed, balanceOf(ledger, "bank:money"));
         apply({
           type: destroyed > 0 ? "writeOff" : "writeOffLoss",

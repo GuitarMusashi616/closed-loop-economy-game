@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { InvariantViolation, createWorld, step, type Command, type World } from "./index";
+import { checkInvariants } from "./ledger";
+import { InvariantViolation, createWorld, moneySupply, step, type Command, type World } from "./index";
 import { seededRandom } from "./rng";
 import technologyData from "./data/technologies.json";
 
@@ -55,6 +56,20 @@ function expectNothingNegative(world: World, label: string) {
     for (const l of i.lines) for (const n of l.batches) expect(n, `${label}: ${i.id} ${l.productId} stock`).toBeGreaterThanOrEqual(dust);
   }
 }
+
+describe("the founding balance sheet", () => {
+  it("is written straight onto the ledger at Tick 0 but balances, holds no money, and passes the invariants", () => {
+    for (const options of [{}, { housed: 0.5 }, { housed: 0 }]) {
+      const world = createWorld(3, options);
+      const sum = (kind: "asset" | "other") =>
+        world.ledger.accounts.filter((a) => (kind === "asset") === (a.kind === "asset")).reduce((s, a) => s + world.ledger.balances[a.id]!, 0);
+      expect(sum("asset")).toBe(sum("other"));
+      expect(sum("asset")).toBeGreaterThan(0);
+      expect(moneySupply(world)).toBe(0);
+      expect(() => checkInvariants(world.ledger)).not.toThrow();
+    }
+  });
+});
 
 describe("per-Tick non-negativity", () => {
   it("holds through many Ticks, across seeds, with random commands from the whole menu, including rejected ones", () => {

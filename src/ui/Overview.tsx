@@ -306,7 +306,7 @@ export function Overview() {
           <p>
             Tuition {education.price} per study day · Tuition Loan rate {(education.tuitionRate * 100).toFixed(1)}%
             {education.governmentRate === null ? "" : `, Government ${(education.governmentRate * 100).toFixed(1)}%`} · Students {education.students.toLocaleString()} ·
-            Tuition debt: bank {education.debt.bank.toLocaleString()}, Government {education.debt.government.toLocaleString()} · Last Tick: students paid{" "}
+            Tuition debt: Commercial Bank {education.debt.bank.toLocaleString()}, Government {education.debt.government.toLocaleString()} · Last Tick: students paid{" "}
             {education.tuitionPaid.toLocaleString()}. Set Public Funding Shares and Government Tuition Loans on the Treasury and Central Bank screen.
           </p>
           <p>

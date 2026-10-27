@@ -16,7 +16,7 @@ export interface TechnologyDef {
   bonus?: { slots?: number; yield?: Record<string, number> };
 }
 
-/** The tech tree is defined in `data/technologies.json`. */
+/** The Technology tree is defined in `data/technologies.json`. */
 export const TECHNOLOGIES = technologyData as TechnologyDef[];
 
 export const LAB_ID = "research-labs";

@@ -31,7 +31,7 @@ function until(world: World, id: string, limit = 150): World {
   return world;
 }
 
-describe("the tech tree", () => {
+describe("the Technology tree", () => {
   const tree = technologies(createWorld(1));
 
   it("has about twenty Technologies in four branches, each with a point cost", () => {
