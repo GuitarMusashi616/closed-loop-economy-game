@@ -111,12 +111,14 @@ describe("deflation", () => {
     expect(retired).toBeLessThan(spent * 0.95);
   });
 
-  it("passes the fall on to wages, which stay where they were without a contraction", () => {
+  it("lets wages follow prices down, below the usual wage floor, as the money supply shrinks", () => {
     const wages = (w: World) => industries(w).reduce((s, i) => s + i.wage, 0);
+    const lowest = (w: World) => Math.min(...industries(w).map((i) => i.wage));
     for (const { spent, retired } of pairs()) {
-      expect(wages(spent.end)).toBe(70);
-      expect(wages(retired.end)).toBeLessThan(wages(spent.end));
-      expect(industries(retired.end).every((i) => i.wage >= 1)).toBe(true);
+      expect(retired.mean(wages)).toBeLessThan(spent.mean(wages) * 0.9);
+      // The cost-of-living floor is 8 a day, and without a contraction no wage goes under it.
+      expect(spent.mean(lowest)).toBeGreaterThanOrEqual(8);
+      expect(retired.mean(lowest)).toBeLessThan(8);
     }
   });
 

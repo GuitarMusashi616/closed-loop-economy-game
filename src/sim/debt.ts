@@ -1,5 +1,5 @@
 import type { Account, Ledger, Transaction } from "./ledger";
-import { industryAccounts, startingAsk, startingWage, type Industry } from "./industry";
+import { industryAccounts, startingAsk, type Industry } from "./industry";
 
 /** Who can hold Government debt besides the Central Bank, which Monetization already covers. */
 const BANK = "bank";
@@ -117,18 +117,16 @@ export function debtBurdens(ledger: Ledger, industries: Industry[], cohortIds: s
   };
 }
 
-/** The most an Industry cuts a wage in one Tick. */
-const MAX_WAGE_CUT = 0.05;
+export interface DeflationEpisode {
+  /** The price level before the contraction. */
+  base: number;
+  /** Whether prices have fallen clearly below `base` yet; the episode cannot end before they do. */
+  fell: boolean;
+}
 
-/**
- * Wages are sticky but not frozen: during a deflation episode they come down towards the starting wage scaled
- * by the price level (`index`), by at most 5% a Tick, and never below that level. They do not rise again here.
- */
-export function adjustWagesForDeflation(industries: Industry[], index: number): Industry[] {
-  return industries.map((i) => {
-    if (!i.started || i.failed) return i;
-    const target = Math.max(1, Math.round(startingWage(i.id) * index));
-    if (i.wage <= target) return i;
-    return { ...i, wage: Math.max(target, Math.floor(i.wage * (1 - MAX_WAGE_CUT))) };
-  });
+/** Advances a deflation episode: one starts on a contraction and ends once prices fell and are back at their old level. */
+export function nextEpisode(episode: DeflationEpisode | null, contracted: boolean, before: number, after: number): DeflationEpisode | null {
+  if (!episode) return contracted ? { base: before, fell: false } : null;
+  const fell = episode.fell || after < episode.base * 0.95;
+  return fell && after >= episode.base ? null : { base: episode.base, fell };
 }
