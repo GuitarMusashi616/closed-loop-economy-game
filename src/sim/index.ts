@@ -5,9 +5,11 @@ import { industryAccounts, newIndustries, runIndustry, startIndustry, stockOf, t
 import { PRODUCTS, driftTastes, neutralTastes, type Tastes, type Tier } from "./products";
 import { BANK_ACCOUNTS, FOUNDING_BALANCES, bankView, newPolicy, runRetailCredit, type BankPolicy, type CommercialBankView } from "./bank";
 import { NO_FLOWS, checkRate, payTaxAndDividends, stakeAccount, type FiscalFlows, type TaxRates } from "./tax";
-import { checkInvariants, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
+import { explainTick, type Explanation } from "./explain";
+import { CREATION, DESTRUCTION, checkInvariants, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
 
-export type { MoneyEvent } from "./ledger";
+export type { MoneyEvent, MoneyFlow } from "./ledger";
+export type { Explanation } from "./explain";
 export { InvariantViolation } from "./ledger";
 export type { IndustryView, ProductLine } from "./industry";
 export type { Tastes, Tier } from "./products";
@@ -46,6 +48,27 @@ export interface World {
   flows: FiscalFlows;
   ledger: Ledger;
   log: MoneyEvent[];
+  /** One row per Tick for the charts. */
+  history: TickStats[];
+  /** Why notable things happened, in the order they happened. */
+  notes: Explanation[];
+}
+
+/** What the charts plot for one Tick. */
+export interface TickStats {
+  tick: number;
+  moneySupply: number;
+  /** Latest price of each Product by id, 0 if never sold. */
+  prices: Record<string, number>;
+  /** Workers employed across all Industries. */
+  employment: number;
+  population: number;
+  // Welfare Stats, as per-citizen means (hunger and thirst: higher is worse).
+  health: number;
+  hunger: number;
+  thirst: number;
+  education: number;
+  wealth: number;
 }
 
 const TREASURY = "Treasury";
@@ -104,6 +127,8 @@ export function createWorld(seed: number, options: { waterCoverage?: number } = 
       ...industries.flatMap(accountsFor),
     ])),
     log: [],
+    history: [],
+    notes: [],
   };
 }
 
@@ -248,6 +273,56 @@ export function moneyHolders(world: World): { holder: string; balance: number }[
   return [...totals].map(([holder, balance]) => ({ holder, balance }));
 }
 
+export function history(world: World): TickStats[] {
+  return world.history ?? [];
+}
+
+export function explanations(world: World): Explanation[] {
+  return world.notes ?? [];
+}
+
+export interface FlowLink {
+  from: string;
+  to: string;
+  amount: number;
+}
+
+export interface MoneyFlowView {
+  /** Money moved between sectors, plus creation into and destruction out of them. Flows within one sector are left out. */
+  links: FlowLink[];
+  created: number;
+  destroyed: number;
+}
+
+/** Where money moved between sectors over the Ticks `fromTick` to `toTick` inclusive, with creation and destruction kept apart. */
+export function moneyFlows(world: World, fromTick: number, toTick: number): MoneyFlowView {
+  const sectorOf = new Map<string, string>([
+    [TREASURY, "Government"],
+    ["Central Bank", "Government"],
+    ["Commercial Bank", "Commercial Banks"],
+    [CREATION, CREATION],
+    [DESTRUCTION, DESTRUCTION],
+  ]);
+  for (const c of world.cohorts) sectorOf.set(c.name, "Households");
+  for (const i of world.industries) sectorOf.set(i.name, "Industries");
+  const totals = new Map<string, FlowLink>();
+  let created = 0;
+  let destroyed = 0;
+  for (const f of world.ledger.flows ?? []) {
+    if (f.tick < fromTick || f.tick > toTick) continue;
+    const from = sectorOf.get(f.from) ?? f.from;
+    const to = sectorOf.get(f.to) ?? f.to;
+    if (from === CREATION) created += f.amount;
+    if (to === DESTRUCTION) destroyed += f.amount;
+    if (from === to) continue;
+    const key = `${from}|${to}`;
+    const link = totals.get(key) ?? { from, to, amount: 0 };
+    link.amount += f.amount;
+    totals.set(key, link);
+  }
+  return { links: [...totals.values()], created, destroyed };
+}
+
 export function moneyLog(world: World): MoneyEvent[] {
   return world.log;
 }
@@ -347,7 +422,23 @@ export function step(world: World, commands: Command[]): { world: World; events:
     ).ledger;
   }
   checkInvariants(ledger);
-  return { world: { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: next, policy, tastes, markups, taxes, flows, ledger, log: [...world.log, ...events] }, events };
+  const after: World = { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: next, policy, tastes, markups, taxes, flows, ledger, log: [...world.log, ...events] };
+  const markets = productMarkets(after);
+  const summary = countrySummary(after);
+  const stats: TickStats = {
+    tick: world.tick,
+    moneySupply: moneySupply(after),
+    prices: Object.fromEntries(markets.map((m) => [m.id, m.price])),
+    employment: next.reduce((s, i) => s + i.headcount, 0),
+    population: summary.population,
+    health: summary.health,
+    hunger: summary.hunger,
+    thirst: summary.thirst,
+    education: summary.education,
+    wealth: summary.wealth,
+  };
+  const notes = explainTick(world.tick, { industries: world.industries, products: productMarkets(world) }, { industries: next, products: markets });
+  return { world: { ...after, history: [...history(world), stats], notes: [...explanations(world), ...notes] }, events };
 }
 
 function applyMarkupCommand(markups: Record<string, number>, command: Extract<Command, { type: "setMarkup" }>): Record<string, number> {
