@@ -228,7 +228,8 @@ export function runEducation<C extends CohortLike>(
     }
     if (own > cash) {
       const borrow = own - cash;
-      const gov = lender() === "gov";
+      // The subsidy above may have used the Treasury's cash up, so a Government loan is only made if it can still be covered.
+      const gov = lender() === "gov" && balanceOf(ledger, "treasury:money") >= borrow;
       const loan = educationAccounts(c.id)[gov ? "govLoan" : "bankLoan"];
       apply({
         type: gov ? "governmentTuitionLoan" : "tuitionLoan",

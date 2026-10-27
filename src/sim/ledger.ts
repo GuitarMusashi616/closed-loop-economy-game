@@ -207,6 +207,8 @@ export function checkInvariants(ledger: Ledger): void {
     if (balance === undefined || !Number.isFinite(balance)) {
       throw new InvariantViolation(`account ${account.id} has no valid balance`);
     }
+    // Every asset and liability (cash, loans, deposits, debt, durables) is a real holding or claim and never goes
+    // negative, whatever the command or Tick. Equity is the residual of a holder and may be.
     if (account.kind !== "equity" && balance < 0) {
       throw new InvariantViolation(`account ${account.id} is negative (${balance})`);
     }
