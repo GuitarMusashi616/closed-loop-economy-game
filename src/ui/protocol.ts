@@ -1,4 +1,4 @@
-import type { ResearchView, Explanation, MoneyFlowView, TickStats, FiscalFlows, SectoralBalanceView, TaxRates, Citizen, CommercialBankView, Cohort, CohortView, Command, CountrySummary, IndustryView, MoneyEvent, ProductMarketView } from "../sim";
+import type { Alert, LeverStages, TutorialStep, DebtBurdensView, GovernmentDebtView, DurablesView, ResearchView, Explanation, MoneyFlowView, TickStats, FiscalFlows, SectoralBalanceView, TaxRates, Citizen, CommercialBankView, Cohort, CohortView, Command, CountrySummary, IndustryView, MoneyEvent, ProductMarketView } from "../sim";
 
 export type Speed = 0 | 1 | 2 | 4;
 
@@ -34,6 +34,14 @@ export interface Snapshot {
   flows: MoneyFlowView;
   history: TickStats[];
   notes: Explanation[];
+  stages: LeverStages;
+  alerts: Alert[];
+  tutorial: TutorialStep[];
+  durables: DurablesView[];
+  debt: GovernmentDebtView;
+  burdens: DebtBurdensView;
+  pensionRate: number;
+  pensionsPaid: number;
 }
 
 export type FromWorker =

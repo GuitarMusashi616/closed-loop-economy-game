@@ -9,6 +9,7 @@ import { NO_FLOWS, checkRate, payTaxAndDividends, stakeAccount, type FiscalFlows
 import { chooseActive, contractDemand, newResearch, researchView, runContract, type ResearchState, type ResearchView } from "./research";
 import { nextEpisode, type DeflationEpisode, debtAccounts, debtBurdens as computeBurdens, governmentDebt as computeDebt, issueDebt, priceIndex as computePriceIndex, retireDebt, type DebtBurdensView, type GovernmentDebtView } from "./debt";
 import { CAR_PER, HOUSE_SHELTERS, REPOSSESSED, REPOSSESSED_ACCOUNT, cohortHousingAccounts, durablesView, foundingDurables, homelessShare, runHousing, runPensions, type DurablesView } from "./housing";
+import { alertsFor, assertUnlocked, stagesAt, tutorialFor, type Alert, type LeverStages, type TutorialStep } from "./guide";
 import { explainTick, type Explanation } from "./explain";
 import { CREATION, DESTRUCTION, checkInvariants, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
 
@@ -22,6 +23,7 @@ export type { FiscalFlows, TaxRates } from "./tax";
 export type { ResearchView, TechnologyView, TechnologyStatus, Branch } from "./research";
 export type { DebtBurden, DebtBurdensView, GovernmentDebtView } from "./debt";
 export type { DurablesView } from "./housing";
+export type { Alert, LeverStages, TutorialStep } from "./guide";
 
 export type Command =
   /** Chooses the Technologies to research, up to the number of slots. Replaces the previous choice. */
@@ -49,6 +51,8 @@ export type { AgeBand, Citizen, Cohort, CohortView, CountrySummary } from "./hou
 export interface World {
   seed: number;
   tick: number;
+  /** Whether Government levers unlock in stages over the first Days. Absent (old saves) means all open. */
+  gradualUnlock?: boolean;
   cohorts: Cohort[];
   /** Share of every cohort's water need that the public supply meets, 0 to 1. */
   waterCoverage: number;
@@ -124,7 +128,7 @@ const COHORTS = [
 ] as const;
 
 /** `housed` is the share of the housing each cohort needs that it starts out owning (default 1). */
-export function createWorld(seed: number, options: { waterCoverage?: number; housed?: number } = {}): World {
+export function createWorld(seed: number, options: { waterCoverage?: number; housed?: number; gradualUnlock?: boolean } = {}): World {
   const random = seededRandom(seed);
   const housed = Math.min(1, Math.max(0, options.housed ?? 1));
   const cohorts = COHORTS.map((c, i) => {
@@ -142,6 +146,7 @@ export function createWorld(seed: number, options: { waterCoverage?: number; hou
   return {
     seed,
     tick: 0,
+    gradualUnlock: options.gradualUnlock ?? false,
     cohorts,
     waterCoverage: options.waterCoverage ?? 1,
     industries,
@@ -344,6 +349,21 @@ export function debtBurdens(world: World): DebtBurdensView {
   return computeBurdens(world.ledger, world.industries, world.cohorts.map((c) => c.id));
 }
 
+/** Which stages of Government levers are open. Locked commands are rejected by `step`. */
+export function leverStages(world: World): LeverStages {
+  return stagesAt(world.tick, world.gradualUnlock ?? false);
+}
+
+/** Emerging problems: famine, the Commercial Bank halting lending, mass layoffs. */
+export function alerts(world: World): Alert[] {
+  return alertsFor({ hunger: countrySummary(world).hunger, ledger: world.ledger, employment: history(world).map((h) => h.employment) });
+}
+
+/** The first-run steps from zero money, and which are done. */
+export function tutorial(world: World): TutorialStep[] {
+  return tutorialFor(new Set((world.ledger.flows ?? []).map((f) => f.cause)), world.tick);
+}
+
 export function moneySupply(world: World): number {
   return ledgerMoneySupply(world.ledger);
 }
@@ -451,6 +471,7 @@ export function step(world: World, commands: Command[]): { world: World; events:
   const events: MoneyEvent[] = [];
   const grain: Record<string, number> = {};
   for (const command of commands) {
+    assertUnlocked(command.type, world.tick, world.gradualUnlock ?? false);
     if (command.type === "setPolicyRate" || command.type === "setSpreads") {
       policy = applyPolicy(policy, command);
       continue;
