@@ -1,7 +1,8 @@
 import { hasWelfareStats, newCohort, runHouseholds, sampleCitizenOf, type Citizen, type Cohort, type CohortView, type CountrySummary } from "./households";
 import { runSupplyWeb } from "./web";
 import { seededRandom } from "./rng";
-import { industryAccounts, newIndustries, runIndustry, startIndustry, stockOf, type Industry, type IndustryView, type ProductLine } from "./industry";
+import { isWorkingAge, newLabor, runLabor, type Labor } from "./labor";
+import { industryAccounts, labourDemand, newIndustries, runIndustry, startIndustry, stockOf, type Industry, type IndustryView, type ProductLine } from "./industry";
 import { PRODUCTS, driftTastes, neutralTastes, type Tastes, type Tier } from "./products";
 import { BANK_ACCOUNTS, FOUNDING_BALANCES, bankView, newPolicy, runRetailCredit, type BankPolicy, type CommercialBankView } from "./bank";
 import { checkInvariants, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
@@ -30,6 +31,8 @@ export interface World {
   /** Share of every cohort's water need that the public supply meets, 0 to 1. */
   waterCoverage: number;
   industries: Industry[];
+  /** Experience of the unemployed. Who is unemployed is the working-age population less the jobs held. */
+  labor: Labor;
   policy: BankPolicy;
   /** Cohort taste multipliers per Product, which drift each Tick. */
   tastes: Tastes;
@@ -81,6 +84,7 @@ export function createWorld(seed: number, options: { waterCoverage?: number } = 
     cohorts,
     waterCoverage: options.waterCoverage ?? 1,
     industries,
+    labor: newLabor(),
     policy: newPolicy(),
     tastes: neutralTastes(cohorts.map((c) => c.id)),
     markups: {},
@@ -145,11 +149,27 @@ export function industries(world: World): IndustryView[] {
     const { balances } = world.ledger;
     return {
       ...industry,
+      experience: industry.skills[industry.id] ?? 0,
       money: balances[acct.money] ?? 0,
       loanOwed: balances[acct.loanOwed] ?? 0,
       equity: balances[acct.equity] ?? 0,
     };
   });
+}
+
+export interface LaborMarketView {
+  /** Working-age citizens: every Household Cohort except Retirees. */
+  laborForce: number;
+  employed: number;
+  unemployed: number;
+  /** Mean experience of the unemployed, by the Industry it was earned in; it decays while they are out of work. */
+  unemployedExperience: Record<string, number>;
+}
+
+export function laborMarket(world: World): LaborMarketView {
+  const laborForce = world.cohorts.filter(isWorkingAge).reduce((s, c) => s + c.population, 0);
+  const employed = Math.min(laborForce, world.industries.reduce((s, i) => s + i.workers, 0));
+  return { laborForce, employed, unemployed: laborForce - employed, unemployedExperience: world.labor.skills };
 }
 
 export interface ProductMarketView {
@@ -225,6 +245,9 @@ export function deserialize(save: string): World {
   if (world.industries.some((i) => typeof i.capacity !== "number")) {
     throw new Error("Save predates the supply web and cannot be loaded");
   }
+  if (!world.labor || world.industries.some((i) => typeof i.workers !== "number")) {
+    throw new Error("Save predates the labor market and cannot be loaded");
+  }
   if (!hasWelfareStats(world.cohorts) || typeof world.waterCoverage !== "number") {
     throw new Error("Save predates Welfare Stats and cannot be loaded");
   }
@@ -263,8 +286,12 @@ export function step(world: World, commands: Command[]): { world: World; events:
   const web = runSupplyWeb(started, ledger, markups, world.tick);
   ledger = web.ledger;
   events.push(...web.events);
-  const next = web.industries.map((industry) => {
-    const run = runIndustry(industry, ledger, { cohorts: cohortsNext, tastes, markups }, world.tick);
+  const market = runLabor(web.industries, cohortsNext, world.labor, (i) =>
+    labourDemand(i, ledger.balances[industryAccounts(i).money] ?? 0, markups),
+  );
+  const payroll = cohortsNext.filter(isWorkingAge);
+  const next = market.industries.map((industry) => {
+    const run = runIndustry(industry, ledger, { cohorts: cohortsNext, tastes, markups, payroll }, world.tick);
     ledger = run.ledger;
     events.push(...run.events);
     for (const [id, units] of Object.entries(run.fills)) grain[id] = (grain[id] ?? 0) + units;
@@ -287,7 +314,7 @@ export function step(world: World, commands: Command[]): { world: World; events:
     ).ledger;
   }
   checkInvariants(ledger);
-  return { world: { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: next, policy, tastes, markups, ledger, log: [...world.log, ...events] }, events };
+  return { world: { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: next, labor: market.labor, policy, tastes, markups, ledger, log: [...world.log, ...events] }, events };
 }
 
 function applyMarkupCommand(markups: Record<string, number>, command: Extract<Command, { type: "setMarkup" }>): Record<string, number> {

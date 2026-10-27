@@ -14,6 +14,7 @@ export function Industries({ industries }: { industries: IndustryView[] }) {
             <th align="right">Equity</th>
             <th align="right">Food stock</th>
             <th align="right">Wage</th>
+            <th align="right">Workers</th>
             <th align="right">Headcount</th>
           </tr>
         </thead>
@@ -26,6 +27,7 @@ export function Industries({ industries }: { industries: IndustryView[] }) {
               <td align="right">{i.equity.toLocaleString()}</td>
               <td align="right">{i.lines.reduce((s, l) => s + stockOf(l), 0).toLocaleString()}</td>
               <td align="right">{i.wage.toLocaleString()}</td>
+              <td align="right">{Math.round(i.workers).toLocaleString()}</td>
               <td align="right">{i.headcount.toLocaleString()}</td>
             </tr>
           ))}

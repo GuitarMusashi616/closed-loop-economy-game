@@ -1,5 +1,6 @@
 import { post, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
 import { GRAIN_NEED_PER_HEAD } from "./households";
+import { developSkills, wageFloor, type ExperienceType } from "./labor";
 import { clearAuction, type Buyer } from "./market";
 import { applyMarkup, productDef, tierBudget, type Tastes } from "./products";
 import industryData from "./data/industries.json";
@@ -37,6 +38,14 @@ export interface Industry {
   started: boolean;
   lines: ProductLine[];
   wage: number;
+  /** The Experience Type that boosts this Industry, or null for general labor. */
+  experienceType: ExperienceType | null;
+  /** Citizens employed here, a fraction while workers flow in and out. */
+  workers: number;
+  /** Mean experience of the workers, by the Industry it was earned in (0 to 1). */
+  skills: Record<string, number>;
+  /** Output per worker relative to a novice, from the workers' experience here. */
+  productivity: number;
   targetHeadcount: number;
   /** Product the Industry buys as capital goods to replace its Capacity. */
   capitalGood: string;
@@ -63,19 +72,19 @@ export interface Industry {
 }
 
 export interface IndustryView extends Industry {
+  /** Mean experience of the workers in this Industry's own Experience Type. */
+  experience: number;
   money: number;
   loanOwed: number;
   equity: number;
 }
-
-export const WORKER_COHORT = "cohort-0";
 
 export const stockOf = (line: ProductLine) => line.batches.reduce((s, n) => s + n, 0);
 
 interface IndustryDef {
   id: string;
   name: string;
-  wage: number;
+  experienceType: ExperienceType | null;
   startHeadcount: number;
   capitalGood: string;
   lines: { productId: string; yield: number; ask: number; capacityPerUnit: number; inputs: Record<string, number> }[];
@@ -105,7 +114,11 @@ function build(def: IndustryDef): Industry {
       productId: l.productId, yield: l.yield, inputs: l.inputs, capacityPerUnit: l.capacityPerUnit, plan: 0, expected: 0,
       batches: [], ask: l.ask, produced: 0, sold: 0, demand: 0, spoiled: 0, price: 0,
     })),
-    wage: def.wage,
+    wage: wageFloor(def.experienceType),
+    experienceType: def.experienceType,
+    workers: 0,
+    skills: {},
+    productivity: 1,
     targetHeadcount: def.startHeadcount,
     capitalGood: def.capitalGood,
     capacity: Math.ceil(STARTING_CAPACITY * capacityPerWorker(def.lines) * def.startHeadcount),
@@ -179,11 +192,13 @@ export interface MarketInputs {
   tastes: Tastes;
   /** Player Markup / Discount in percent by Product id, and by "wages". */
   markups: Record<string, number>;
+  /** Working-age Household Cohorts that wages are paid to, in proportion to population. */
+  payroll: { id: string; population: number }[];
 }
 
 /** Units of a line the Industry means to make: whatever sells to Households, or what other Industries asked for. */
 export function planFor(industry: Industry, line: ProductLine): number {
-  const capacity = industry.targetHeadcount * line.yield;
+  const capacity = Math.floor(industry.targetHeadcount * line.yield * industry.productivity + 1e-9);
   if (productDef(line.productId).household) return capacity;
   const glut = stockOf(line) > 2 * line.expected;
   return glut ? 0 : Math.min(capacity, Math.ceil(STOCK_BUFFER * line.expected));
@@ -192,6 +207,14 @@ export function planFor(industry: Industry, line: ProductLine): number {
 /** Capacity the Industry wants to hold, a buffer above what its target headcount uses. */
 export const capacityWanted = (industry: Industry) =>
   Math.ceil(CAPACITY_BUFFER * industry.targetHeadcount * capacityPerWorker(industry.lines));
+
+/** Workers an Industry wants this Tick: as many as it can keep busy and pay, up to its target. */
+export function labourDemand(industry: Industry, money: number, markups: Record<string, number>): number {
+  const wage = applyMarkup(industry.wage, markups.wages);
+  const unlimited = allowances(industry, () => Infinity);
+  const needed = industry.lines.reduce((m, l, i) => Math.max(m, Math.ceil(unlimited[i]! / (l.yield * industry.productivity) - 1e-9)), 0);
+  return Math.min(industry.targetHeadcount, needed, Math.floor(money / wage));
+}
 
 /** How many units each line can make from the inputs and Capacity on hand, given a limit on what workers can make. */
 function allowances(industry: Industry, workerCap: (line: ProductLine) => number): number[] {
@@ -223,29 +246,32 @@ export function runIndustry(
     ledger = result.ledger;
     if (result.event) events.push(result.event);
   };
-  const { cohorts, tastes, markups } = inputs;
+  const { cohorts, tastes, markups, payroll } = inputs;
 
   // The wage is discovered first, then the player's Markup / Discount applies on top.
   // Only as many workers are hired as there are inputs and Capacity to keep busy, and money to pay.
   const wage = applyMarkup(industry.wage, markups.wages);
-  const unlimited = allowances(industry, () => Infinity);
-  const needed = industry.lines.reduce((m, l, i) => Math.max(m, Math.ceil(unlimited[i]! / l.yield)), 0);
-  const headcount = Math.min(industry.targetHeadcount, needed, Math.floor(balance(ledger, acct.money) / wage));
+  const headcount = Math.min(labourDemand(industry, balance(ledger, acct.money), markups), Math.floor(industry.workers + 1e-9));
   const wagesPaid = headcount * wage;
-  if (wagesPaid > 0) {
+  const population = payroll.reduce((s, c) => s + c.population, 0);
+  let unpaid = wagesPaid;
+  payroll.forEach((c, i) => {
+    const amount = i === payroll.length - 1 ? unpaid : Math.floor((wagesPaid * c.population) / population);
+    unpaid -= amount;
+    if (amount <= 0) return;
     apply({
       type: "wages",
       entries: [
-        { account: acct.equity, debit: wagesPaid },
-        { account: acct.money, credit: wagesPaid },
-        { account: `${WORKER_COHORT}:money`, debit: wagesPaid },
-        { account: `${WORKER_COHORT}:equity`, credit: wagesPaid },
+        { account: acct.equity, debit: amount },
+        { account: acct.money, credit: amount },
+        { account: `${c.id}:money`, debit: amount },
+        { account: `${c.id}:equity`, credit: amount },
       ],
     });
-  }
+  });
 
   // Produce from inputs on hand and Capacity, then age and spoil stock.
-  const made = allowances(industry, (l) => headcount * l.yield);
+  const made = allowances(industry, (l) => Math.floor(headcount * industry.productivity * l.yield + 1e-9));
   const inputStock = { ...industry.inputStock };
   industry.lines.forEach((line, i) => {
     for (const [id, per] of Object.entries(line.inputs)) inputStock[id] = (inputStock[id] ?? 0) - made[i]! * per;
@@ -318,7 +344,7 @@ export function runIndustry(
   }
 
   const next: Industry = {
-    ...industry,
+    ...developSkills({ ...industry, headcount }),
     lines: industry.lines.map((l) => results.get(l.productId)!),
     inputStock,
     capacity: Math.max(industry.baseCapacity, Math.floor(industry.capacity * (1 - DEPRECIATION))),

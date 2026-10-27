@@ -1,6 +1,6 @@
 [
   {
-    "id": "agriculture", "name": "Agriculture", "wage": 10, "startHeadcount": 10, "capitalGood": "tools",
+    "id": "agriculture", "name": "Agriculture", "experienceType": null, "startHeadcount": 10, "capitalGood": "tools",
     "lines": [
       {"productId": "grain", "yield": 2, "ask": 10, "capacityPerUnit": 1, "inputs": {}},
       {"productId": "vegetables", "yield": 1, "ask": 10, "capacityPerUnit": 1, "inputs": {}},
@@ -9,14 +9,14 @@
     ]
   },
   {
-    "id": "mining-energy", "name": "Mining and Energy", "wage": 10, "startHeadcount": 10, "capitalGood": "machinery",
+    "id": "mining-energy", "name": "Mining and Energy", "experienceType": "scientist", "startHeadcount": 10, "capitalGood": "machinery",
     "lines": [
       {"productId": "ore", "yield": 6, "ask": 5, "capacityPerUnit": 1, "inputs": {}},
       {"productId": "power", "yield": 8, "ask": 4, "capacityPerUnit": 1, "inputs": {"ore": 0.25}}
     ]
   },
   {
-    "id": "manufacturing", "name": "Manufacturing", "wage": 10, "startHeadcount": 10, "capitalGood": "machinery",
+    "id": "manufacturing", "name": "Manufacturing", "experienceType": "trades", "startHeadcount": 10, "capitalGood": "machinery",
     "lines": [
       {"productId": "metal", "yield": 3, "ask": 14, "capacityPerUnit": 1, "inputs": {"ore": 1, "power": 0.5, "freight": 0.2}},
       {"productId": "tools", "yield": 1, "ask": 30, "capacityPerUnit": 2, "inputs": {"metal": 1, "power": 0.3}},
@@ -24,26 +24,26 @@
     ]
   },
   {
-    "id": "construction", "name": "Construction", "wage": 10, "startHeadcount": 10, "capitalGood": "machinery",
+    "id": "construction", "name": "Construction", "experienceType": "trades", "startHeadcount": 10, "capitalGood": "machinery",
     "lines": [
       {"productId": "buildings", "yield": 1, "ask": 40, "capacityPerUnit": 4, "inputs": {"metal": 1, "power": 0.3, "freight": 0.2, "healthcare": 0.05}}
     ]
   },
   {
-    "id": "retail-logistics", "name": "Retail and Logistics", "wage": 10, "startHeadcount": 10, "capitalGood": "buildings",
+    "id": "retail-logistics", "name": "Retail and Logistics", "experienceType": "professional", "startHeadcount": 10, "capitalGood": "buildings",
     "lines": [
       {"productId": "freight", "yield": 6, "ask": 4, "capacityPerUnit": 1, "inputs": {"power": 0.1}}
     ]
   },
   {
-    "id": "healthcare-education", "name": "Healthcare and Education", "wage": 10, "startHeadcount": 10, "capitalGood": "buildings",
+    "id": "healthcare-education", "name": "Healthcare and Education", "experienceType": "professional", "startHeadcount": 10, "capitalGood": "buildings",
     "lines": [
       {"productId": "healthcare", "yield": 2, "ask": 9, "capacityPerUnit": 1, "inputs": {"power": 0.2, "education": 0.05}},
       {"productId": "education", "yield": 2, "ask": 9, "capacityPerUnit": 1, "inputs": {"power": 0.2}}
     ]
   },
   {
-    "id": "research-labs", "name": "Research Labs", "wage": 10, "startHeadcount": 10, "capitalGood": "buildings",
+    "id": "research-labs", "name": "Research Labs", "experienceType": "scientist", "startHeadcount": 10, "capitalGood": "buildings",
     "lines": [
       {"productId": "research", "yield": 1, "ask": 20, "capacityPerUnit": 2, "inputs": {"power": 0.2, "education": 0.2}}
     ]
