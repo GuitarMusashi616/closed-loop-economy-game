@@ -1,4 +1,4 @@
-import { post, type Ledger } from "./ledger";
+import { balanceOf, post, type Ledger } from "./ledger";
 import { industryAccounts, stockOf, take, unlockProducts, type Industry } from "./industry";
 import technologyData from "./data/technologies.json";
 
@@ -86,7 +86,7 @@ export function runContract(
   const lab = industries.find((i) => i.id === LAB_ID);
   const line = lab && labLine(lab);
   if (!lab || !line || !lab.started || lab.failed || state.active.length === 0) return { state: { ...state, delivered: 0 }, industries, ledger };
-  const treasury = ledger.balances["treasury:money"] ?? 0;
+  const treasury = balanceOf(ledger, "treasury:money");
   const units = Math.min(CONTRACT_UNITS, Math.floor(stockOf(line)), Math.floor(treasury / CONTRACT_PRICE));
   if (units <= 0) return { state: { ...state, delivered: 0 }, industries, ledger };
 

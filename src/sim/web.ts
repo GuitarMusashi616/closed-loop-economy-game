@@ -1,4 +1,4 @@
-import { post, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
+import { post, type Ledger, type MoneyEvent, type Transaction, balanceOf } from "./ledger";
 import { clearAuction, type Buyer } from "./market";
 import { applyMarkup, PRODUCTS, productDef } from "./products";
 import { askFor, capacityWanted, industryAccounts, nextAsk, planFor, stockOf, take, type Industry, type ProductLine } from "./industry";
@@ -14,7 +14,6 @@ interface Request {
   budget: number;
 }
 
-const balance = (ledger: Ledger, account: string) => ledger.balances[account] ?? 0;
 
 /**
  * The input-output web for one Tick. Industries plan what to make, then buy the inputs they need
@@ -44,7 +43,7 @@ export function runSupplyWeb(
   // What each Industry wants to buy. Wages for next Tick are held back from the budget.
   const requests: Request[] = [];
   for (const industry of running()) {
-    const spendable = Math.max(0, balance(ledger, industryAccounts(industry).money) - industry.targetHeadcount * industry.wage);
+    const spendable = Math.max(0, balanceOf(ledger, industryAccounts(industry).money) - industry.targetHeadcount * industry.wage);
     const wanted: Request[] = [];
     const need: Record<string, number> = {};
     for (const line of industry.lines) {
@@ -91,7 +90,7 @@ export function runSupplyWeb(
         .filter((r) => r.need > 0)
         .map((r) => ({
           id: `${r.buyer}:${r.kind}`,
-          money: Math.min(r.budget, balance(ledger, industryAccounts(byId.get(r.buyer)!).money)),
+          money: Math.min(r.budget, balanceOf(ledger, industryAccounts(byId.get(r.buyer)!).money)),
           need: r.need,
           maxWtp: def.maxWtp,
         }));
@@ -102,7 +101,7 @@ export function runSupplyWeb(
         const request = wants.find((r) => `${r.buyer}:${r.kind}` === buyerKey)!;
         const buyer = byId.get(request.buyer)!;
         const buyerAccounts = industryAccounts(buyer);
-        const units = Math.min(wanted, Math.floor(balance(ledger, buyerAccounts.money) / price), Math.floor(request.budget / price));
+        const units = Math.min(wanted, Math.floor(balanceOf(ledger, buyerAccounts.money) / price), Math.floor(request.budget / price));
         if (units <= 0) continue;
         const paid = units * price;
         apply({

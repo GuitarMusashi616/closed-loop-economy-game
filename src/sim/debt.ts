@@ -1,4 +1,4 @@
-import type { Account, Ledger, Transaction } from "./ledger";
+import { balanceOf, type Account, type Ledger, type Transaction } from "./ledger";
 import { industryAccounts, startingAsk, type Industry } from "./industry";
 
 /** Who can hold Government debt besides the Central Bank, which Monetization already covers. */
@@ -34,7 +34,6 @@ export function debtAccounts(cohorts: { id: string; name: string }[]): Account[]
   ];
 }
 
-const bal = (ledger: Ledger, id: string) => ledger.balances[id] ?? 0;
 
 function holderAccounts(holder: string, cohortIds: string[]): { money: string; debt: string } {
   if (holder === CENTRAL_BANK) return { money: "centralBank:moneyIssued", debt: "centralBank:govDebtHeld" };
@@ -47,7 +46,7 @@ function holderAccounts(holder: string, cohortIds: string[]): { money: string; d
 export function issueDebt(ledger: Ledger, cohortIds: string[], holder: string, amount: number): Transaction {
   if (holder === CENTRAL_BANK) throw new Error("The Central Bank takes debt only through Monetization; use monetize");
   const { money, debt } = holderAccounts(holder, cohortIds);
-  if (bal(ledger, money) < amount) throw new Error(`${holder} has only ${bal(ledger, money)} to lend, so ${amount} of debt cannot be sold`);
+  if (balanceOf(ledger, money) < amount) throw new Error(`${holder} has only ${balanceOf(ledger, money)} to lend, so ${amount} of debt cannot be sold`);
   return {
     type: "bondSale",
     entries: [
@@ -65,8 +64,8 @@ export function issueDebt(ledger: Ledger, cohortIds: string[], holder: string, a
  */
 export function retireDebt(ledger: Ledger, cohortIds: string[], holder: string, amount: number): Transaction {
   const { money, debt } = holderAccounts(holder, cohortIds);
-  if (bal(ledger, debt) < amount) throw new Error(`${holder} holds only ${bal(ledger, debt)} of Government debt, so ${amount} cannot be retired`);
-  if (bal(ledger, "treasury:money") < amount) throw new Error(`Treasury has only ${bal(ledger, "treasury:money")}, so ${amount} of debt cannot be retired`);
+  if (balanceOf(ledger, debt) < amount) throw new Error(`${holder} holds only ${balanceOf(ledger, debt)} of Government debt, so ${amount} cannot be retired`);
+  if (balanceOf(ledger, "treasury:money") < amount) throw new Error(`Treasury has only ${balanceOf(ledger, "treasury:money")}, so ${amount} of debt cannot be retired`);
   if (holder === CENTRAL_BANK) {
     return {
       type: "debtRetirement",
@@ -91,10 +90,10 @@ export function retireDebt(ledger: Ledger, cohortIds: string[], holder: string, 
 
 export function governmentDebt(ledger: Ledger, cohortIds: string[]): GovernmentDebtView {
   return {
-    owed: bal(ledger, "treasury:debtOwed"),
-    centralBank: bal(ledger, "centralBank:govDebtHeld"),
-    commercialBank: bal(ledger, "bank:govDebt"),
-    households: cohortIds.reduce((s, id) => s + bal(ledger, `${id}:govDebt`), 0),
+    owed: balanceOf(ledger, "treasury:debtOwed"),
+    centralBank: balanceOf(ledger, "centralBank:govDebtHeld"),
+    commercialBank: balanceOf(ledger, "bank:govDebt"),
+    households: cohortIds.reduce((s, id) => s + balanceOf(ledger, `${id}:govDebt`), 0),
   };
 }
 
@@ -111,9 +110,9 @@ export function debtBurdens(ledger: Ledger, industries: Industry[], cohortIds: s
   const burden = (nominal: number): DebtBurden => ({ nominal, real: nominal / index });
   return {
     priceIndex: index,
-    government: burden(bal(ledger, "treasury:debtOwed")),
-    industries: burden(industries.reduce((s, i) => s + bal(ledger, industryAccounts(i).loanOwed), 0)),
-    households: burden(cohortIds.reduce((s, id) => s + bal(ledger, `${id}:loanOwed`), 0)),
+    government: burden(balanceOf(ledger, "treasury:debtOwed")),
+    industries: burden(industries.reduce((s, i) => s + balanceOf(ledger, industryAccounts(i).loanOwed), 0)),
+    households: burden(cohortIds.reduce((s, id) => s + balanceOf(ledger, `${id}:loanOwed`), 0)),
   };
 }
 

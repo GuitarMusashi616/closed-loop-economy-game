@@ -117,10 +117,13 @@ export function emptyLedger(accounts: Account[]): Ledger {
   };
 }
 
+/** The balance of an account, 0 if it has never been touched. */
+export const balanceOf = (ledger: Ledger, account: string): number => ledger.balances[account] ?? 0;
+
 export function ledgerMoneySupply(ledger: Ledger): number {
   return ledger.accounts
     .filter((a) => a.isMoney)
-    .reduce((sum, a) => sum + (ledger.balances[a.id] ?? 0), 0);
+    .reduce((sum, a) => sum + balanceOf(ledger, a.id), 0);
 }
 
 /** Posts a balanced transaction. Returns the new ledger and, if the supply moved, its logged event. */
@@ -173,7 +176,7 @@ export function post(
 function flowsOf(before: Ledger, after: Ledger, delta: number, cause: string, tick: number): MoneyFlow[] {
   const net = new Map<string, number>();
   for (const a of after.accounts.filter((a) => a.isMoney)) {
-    const change = (after.balances[a.id] ?? 0) - (before.balances[a.id] ?? 0);
+    const change = balanceOf(after, a.id) - balanceOf(before, a.id);
     if (change !== 0) net.set(a.holder, (net.get(a.holder) ?? 0) + change);
   }
   const givers = [...net].filter(([, c]) => c < 0).map(([h, c]) => ({ holder: h, left: -c }));
@@ -213,7 +216,7 @@ export function checkInvariants(ledger: Ledger): void {
   if (assets !== claims) {
     throw new InvariantViolation(`assets (${assets}) do not equal liabilities plus equity (${claims})`);
   }
-  const issued = (ledger.balances["centralBank:moneyIssued"] ?? 0) + (ledger.balances["bank:depositsIssued"] ?? 0);
+  const issued = balanceOf(ledger, "centralBank:moneyIssued") + balanceOf(ledger, "bank:depositsIssued");
   const supply = ledgerMoneySupply(ledger);
   if (issued !== supply) {
     throw new InvariantViolation(`money supply (${supply}) differs from money issued (${issued})`);

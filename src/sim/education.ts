@@ -1,4 +1,4 @@
-import { post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
+import { post, type Account, type Ledger, type MoneyEvent, type Transaction, balanceOf } from "./ledger";
 import { clearAuction, type Buyer } from "./market";
 import { applyMarkup, productDef } from "./products";
 import { askFor, industryAccounts, nextAsk, stockOf, take, type Industry } from "./industry";
@@ -87,7 +87,6 @@ interface CohortLike {
   education: number;
 }
 
-const bal = (ledger: Ledger, account: string) => ledger.balances[account] ?? 0;
 const workingAge = (c: CohortLike) => c.ageBand !== "retired";
 
 export interface EducationTick<C> {
@@ -133,10 +132,10 @@ export function runEducation<C extends CohortLike>(
     const cash = `${c.id}:money`;
     const acct = educationAccounts(c.id);
     for (const [account, rate, lender] of [[acct.bankLoan, bankRate, "bank"], [acct.govLoan, govRate, "gov"]] as const) {
-      const owed = bal(ledger, account);
+      const owed = balanceOf(ledger, account);
       if (owed <= 0) continue;
-      const interest = Math.min(bal(ledger, cash), Math.ceil((owed * rate) / DAYS_PER_YEAR));
-      const principal = Math.min(owed, Math.ceil(owed / REPAYMENT_TICKS), bal(ledger, cash) - interest);
+      const interest = Math.min(balanceOf(ledger, cash), Math.ceil((owed * rate) / DAYS_PER_YEAR));
+      const principal = Math.min(owed, Math.ceil(owed / REPAYMENT_TICKS), balanceOf(ledger, cash) - interest);
       const bank = lender === "bank";
       if (interest > 0) {
         apply({
@@ -175,26 +174,26 @@ export function runEducation<C extends CohortLike>(
   const share = education.publicShare.education;
   const def = productDef("education");
 
-  const lender = (): "gov" | "bank" => (education.governmentLoans && bal(ledger, "treasury:money") > 0 ? "gov" : "bank");
+  const lender = (): "gov" | "bank" => (education.governmentLoans && balanceOf(ledger, "treasury:money") > 0 ? "gov" : "bank");
   const rateOf = (l: "gov" | "bank") => (l === "gov" ? govRate : bankRate);
-  const debtOf = (c: C) => bal(ledger, educationAccounts(c.id).bankLoan) + bal(ledger, educationAccounts(c.id).govLoan);
+  const debtOf = (c: C) => balanceOf(ledger, educationAccounts(c.id).bankLoan) + balanceOf(ledger, educationAccounts(c.id).govLoan);
   // A dearer loan means a student takes on less debt, so cheap Government loans lift demand.
   const debtCap = (c: C, l: "gov" | "bank") => Math.floor(c.population * ENROLL_SHARE * (DEBT_BUDGET / Math.max(0.01, rateOf(l))));
   const room = (c: C) => {
     const l = lender();
-    const lendable = l === "gov" ? bal(ledger, "treasury:money") : Number.MAX_SAFE_INTEGER;
+    const lendable = l === "gov" ? balanceOf(ledger, "treasury:money") : Number.MAX_SAFE_INTEGER;
     return Math.max(0, Math.min(debtCap(c, l) - debtOf(c), lendable));
   };
 
   const wantsUnits = (c: C) => Math.floor(c.population * ENROLL_SHARE);
   const buyers: Buyer[] = cohorts
     .map((c) => {
-      const funds = bal(ledger, `${c.id}:money`) + room(c);
+      const funds = balanceOf(ledger, `${c.id}:money`) + room(c);
       return {
         id: c.id,
         money: share >= 100 ? Infinity : Math.floor(funds / (1 - share / 100)),
         need: workingAge(c) ? Math.floor(c.population * ENROLL_SHARE) : 0,
-        maxWtp: bal(ledger, `${c.id}:money`) < wantsUnits(c) * line.ask ? borrowerWtp(def.maxWtp, rateOf(lender())) : def.maxWtp,
+        maxWtp: balanceOf(ledger, `${c.id}:money`) < wantsUnits(c) * line.ask ? borrowerWtp(def.maxWtp, rateOf(lender())) : def.maxWtp,
       };
     })
     .filter((b) => b.need > 0);
@@ -209,9 +208,9 @@ export function runEducation<C extends CohortLike>(
   const students: Record<string, number> = {};
   for (const [cohortId, wanted] of Object.entries(auction.fills)) {
     const c = cohorts.find((x) => x.id === cohortId)!;
-    const cash = bal(ledger, `${c.id}:money`);
+    const cash = balanceOf(ledger, `${c.id}:money`);
     const affordable = ownPerUnit === 0 ? wanted : Math.floor((cash + room(c)) / ownPerUnit);
-    const fundable = subsidyPerUnit === 0 ? wanted : Math.floor(bal(ledger, "treasury:money") / subsidyPerUnit);
+    const fundable = subsidyPerUnit === 0 ? wanted : Math.floor(balanceOf(ledger, "treasury:money") / subsidyPerUnit);
     const units = Math.min(wanted, affordable, fundable);
     if (units <= 0) continue;
     const own = units * ownPerUnit;
@@ -297,7 +296,7 @@ export function fundHealthcare(
   const industry = industries.find((i) => i.id === EDUCATION_INDUSTRY);
   const line = industry?.lines.find((l) => l.productId === "healthcare");
   if (!industry || !line || share <= 0) return { ledger, industries, events: [], paid: 0 };
-  const amount = Math.min(Math.floor((line.sold * line.price * share) / 100), bal(ledger, "treasury:money"));
+  const amount = Math.min(Math.floor((line.sold * line.price * share) / 100), balanceOf(ledger, "treasury:money"));
   if (amount <= 0) return { ledger, industries, events: [], paid: 0 };
   const acct = industryAccounts(industry);
   const result = post(

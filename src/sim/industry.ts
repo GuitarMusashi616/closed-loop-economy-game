@@ -1,4 +1,4 @@
-import { post, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
+import { post, type Ledger, type MoneyEvent, type Transaction, balanceOf } from "./ledger";
 import { GRAIN_NEED_PER_HEAD } from "./households";
 import { developSkills, wageFloor, type ExperienceType } from "./labor";
 import { clearAuction, type Buyer } from "./market";
@@ -186,10 +186,6 @@ export function industryAccounts(industry: Industry) {
   };
 }
 
-function balance(ledger: Ledger, account: string): number {
-  return ledger.balances[account] ?? 0;
-}
-
 /** Ages stock by a Tick and throws away what has outlived the Product's shelf life. */
 function age(line: ProductLine): { batches: number[]; spoiled: number } {
   const shelfLife = productDef(line.productId).shelfLife;
@@ -286,7 +282,7 @@ export function runIndustry(
   // The wage is discovered first, then the player's Markup / Discount applies on top.
   // Only as many workers are hired as there are inputs and Capacity to keep busy, and money to pay.
   const wage = applyMarkup(industry.wage, markups.wages);
-  const headcount = Math.min(labourDemand(industry, balance(ledger, acct.money), markups), Math.floor(industry.workers + 1e-9));
+  const headcount = Math.min(labourDemand(industry, balanceOf(ledger, acct.money), markups), Math.floor(industry.workers + 1e-9));
   const wagesPaid = headcount * wage;
   const population = payroll.reduce((s, c) => s + c.population, 0);
   // Wages (and the income tax withheld from them) are split between working-age cohorts by population.
@@ -312,7 +308,7 @@ export function runIndustry(
       ],
     });
     // Income tax is taken as wages are paid, so it is gone before workers go shopping.
-    const tax = Math.min(taxDue[i]!, balance(ledger, `${c.id}:money`));
+    const tax = Math.min(taxDue[i]!, balanceOf(ledger, `${c.id}:money`));
     if (tax > 0) {
       incomeTax += tax;
       apply({
@@ -356,7 +352,7 @@ export function runIndustry(
     const supply = batches.reduce((s, n) => s + n, 0);
     const buyers: Buyer[] = cohorts.map((c) => ({
       id: c.id,
-      money: tierBudget(def.tier, balance(ledger, `${c.id}:money`)),
+      money: tierBudget(def.tier, balanceOf(ledger, `${c.id}:money`)),
       need: remaining.get(c.id) ?? 0,
       maxWtp: Math.max(1, Math.round(def.maxWtp * (tastes[c.id]?.[line.productId] ?? 1) * (1 + c.hunger / 100))),
     })).filter((b) => b.need > 0);
@@ -366,7 +362,7 @@ export function runIndustry(
     const price = applyMarkup(auction.price, markups[line.productId]);
     let sold = 0;
     for (const [cohortId, wanted] of Object.entries(auction.fills)) {
-      const units = Math.min(wanted, Math.floor(balance(ledger, `${cohortId}:money`) / price));
+      const units = Math.min(wanted, Math.floor(balanceOf(ledger, `${cohortId}:money`) / price));
       if (units <= 0) continue;
       const paid = units * price;
       apply({
@@ -409,7 +405,7 @@ export function runIndustry(
     wagesPaid,
     revenue: industry.revenue + householdRevenue,
     costs: industry.costs + wagesPaid,
-    brokeTicks: balance(ledger, acct.money) < industry.wage ? industry.brokeTicks + 1 : 0,
+    brokeTicks: balanceOf(ledger, acct.money) < industry.wage ? industry.brokeTicks + 1 : 0,
   };
   const adjusted = { ...next, targetHeadcount: adjustHeadcount(next) };
   if (adjusted.brokeTicks >= BROKE_AFTER) {
@@ -456,8 +452,8 @@ function fail(industry: Industry, ledger: Ledger, tick: number): { industry: Ind
     ledger = result.ledger;
     if (result.event) events.push(result.event);
   };
-  const owed = balance(ledger, acct.loanOwed);
-  const repaid = Math.min(owed, balance(ledger, acct.money));
+  const owed = balanceOf(ledger, acct.loanOwed);
+  const repaid = Math.min(owed, balanceOf(ledger, acct.money));
   if (repaid > 0) {
     apply({
       type: "industryRepayment",

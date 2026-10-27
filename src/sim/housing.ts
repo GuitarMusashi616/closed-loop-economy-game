@@ -1,4 +1,4 @@
-import { post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
+import { post, type Account, type Ledger, type MoneyEvent, type Transaction, balanceOf } from "./ledger";
 import { lendingCapacity, lendingRates, type BankPolicy } from "./bank";
 import type { Industry } from "./industry";
 
@@ -50,7 +50,6 @@ export function foundingDurables(c: { id: string; houses: number; cars: number }
   return { [`${c.id}:houses`]: c.houses * HOUSE_PRICE, [`${c.id}:cars`]: c.cars * CAR_PRICE, [`${c.id}:equity`]: value };
 }
 
-const bal = (ledger: Ledger, account: string) => ledger.balances[account] ?? 0;
 
 export interface DurablesView {
   cohortId: string;
@@ -76,9 +75,9 @@ export function durablesView(ledger: Ledger, cohorts: HousingCohort[]): Durables
     cohortId: c.id,
     houses: c.houses,
     cars: c.cars,
-    houseValue: bal(ledger, `${c.id}:houses`),
-    carValue: bal(ledger, `${c.id}:cars`),
-    securedDebt: bal(ledger, `${c.id}:securedOwed`),
+    houseValue: balanceOf(ledger, `${c.id}:houses`),
+    carValue: balanceOf(ledger, `${c.id}:cars`),
+    securedDebt: balanceOf(ledger, `${c.id}:securedOwed`),
   }));
 }
 
@@ -105,18 +104,18 @@ export function runHousing<C extends HousingCohort>(
     const owedAccount = `${cohort.id}:securedOwed`;
 
     for (const [kind, depreciation] of [["houses", HOUSE_DEPRECIATION], ["cars", CAR_DEPRECIATION]] as const) {
-      const value = bal(ledger, `${cohort.id}:${kind}`);
+      const value = balanceOf(ledger, `${cohort.id}:${kind}`);
       const loss = Math.min(value, Math.ceil(value * depreciation));
       if (loss > 0) {
         apply({ type: "depreciation", entries: [{ account: `${cohort.id}:equity`, debit: loss }, { account: `${cohort.id}:${kind}`, credit: loss }] });
       }
     }
 
-    const owed = bal(ledger, owedAccount);
+    const owed = balanceOf(ledger, owedAccount);
     if (owed > 0) {
       const interest = Math.ceil((owed * rate) / DAYS_PER_YEAR);
       const principal = Math.min(owed, Math.ceil(owed / REPAYMENT_TICKS));
-      if (bal(ledger, cash) >= interest + principal) {
+      if (balanceOf(ledger, cash) >= interest + principal) {
         missed = 0;
         if (interest > 0) {
           apply({
@@ -142,7 +141,7 @@ export function runHousing<C extends HousingCohort>(
         missed = 0;
         // Collateral is seized at book value, cars before houses, until it covers the debt or runs out.
         const seize = (kind: "cars" | "houses", count: number, target: number) => {
-          const value = bal(ledger, `${cohort.id}:${kind}`);
+          const value = balanceOf(ledger, `${cohort.id}:${kind}`);
           const unit = count > 0 ? Math.floor(value / count) : 0;
           const units = unit > 0 ? Math.min(count, Math.ceil(Math.max(0, target) / unit)) : 0;
           return { units, value: units === count ? value : units * unit };
@@ -152,7 +151,7 @@ export function runHousing<C extends HousingCohort>(
         const seized = car.value + house.value;
         const loss = Math.max(0, owed - seized);
         const surplus = Math.max(0, seized - owed);
-        const destroyed = Math.min(loss, bal(ledger, "bank:money"));
+        const destroyed = Math.min(loss, balanceOf(ledger, "bank:money"));
         apply({
           type: destroyed > 0 ? "writeOff" : "seizure",
           entries: [
@@ -178,9 +177,9 @@ export function runHousing<C extends HousingCohort>(
         : cars < carsWanted(cohort.population) ? ({ kind: "cars", price: CAR_PRICE, seller: "manufacturing" } as const)
         : null;
       if (buy && isStarted(buy.seller) && lendingCapacity(ledger) >= buy.price) {
-        const debt = bal(ledger, owedAccount) + buy.price;
+        const debt = balanceOf(ledger, owedAccount) + buy.price;
         const payment = Math.ceil(debt / REPAYMENT_TICKS) + Math.ceil((debt * rate) / DAYS_PER_YEAR);
-        if (bal(ledger, cash) >= AFFORDABILITY_TICKS * payment) {
+        if (balanceOf(ledger, cash) >= AFFORDABILITY_TICKS * payment) {
           apply({
             type: "collateralisedLoan",
             entries: [
@@ -219,7 +218,7 @@ export function runPensions<C extends { id: string; ageBand: string; population:
   let paid = 0;
   for (const c of cohorts) {
     if (c.ageBand !== "retired") continue;
-    const amount = Math.min(Math.floor(c.population * rate), bal(ledger, "treasury:money"));
+    const amount = Math.min(Math.floor(c.population * rate), balanceOf(ledger, "treasury:money"));
     if (amount <= 0) continue;
     ledger = post(
       ledger,

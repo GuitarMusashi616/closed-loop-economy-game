@@ -12,7 +12,7 @@ import { nextEpisode, type DeflationEpisode, debtAccounts, debtBurdens as comput
 import { CAR_PER, HOUSE_SHELTERS, REPOSSESSED, REPOSSESSED_ACCOUNT, cohortHousingAccounts, durablesView, foundingDurables, homelessShare, runHousing, runPensions, type DurablesView } from "./housing";
 import { alertsFor, assertUnlocked, stagesAt, tutorialFor, type Alert, type LeverStages, type TutorialStep } from "./guide";
 import { explainTick, type Explanation } from "./explain";
-import { CREATION, DESTRUCTION, beginBatch, checkInvariants, endBatch, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
+import { CREATION, balanceOf, DESTRUCTION, beginBatch, checkInvariants, endBatch, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
 
 export type { MoneyEvent, MoneyFlow } from "./ledger";
 export type { Explanation } from "./explain";
@@ -204,7 +204,7 @@ export function cohorts(world: World): Cohort[] {
 
 export function cohortViews(world: World): CohortView[] {
   return world.cohorts.map((c) => {
-    const money = world.ledger.balances[`${c.id}:money`] ?? 0;
+    const money = balanceOf(world.ledger, `${c.id}:money`);
     return { ...c, money, wealth: c.population > 0 ? money / c.population : 0 };
   });
 }
@@ -242,14 +242,13 @@ export function research(world: World): ResearchView {
 export function industries(world: World): IndustryView[] {
   return world.industries.map((industry) => {
     const acct = industryAccounts(industry);
-    const { balances } = world.ledger;
-    return {
+        return {
       ...industry,
       experience: industry.skills[industry.id] ?? 0,
-      money: balances[acct.money] ?? 0,
-      loanOwed: balances[acct.loanOwed] ?? 0,
-      equity: balances[acct.equity] ?? 0,
-      stake: balances[stakeAccount(industry)] ?? 0,
+      money: balanceOf(world.ledger, acct.money),
+      loanOwed: balanceOf(world.ledger, acct.loanOwed),
+      equity: balanceOf(world.ledger, acct.equity),
+      stake: balanceOf(world.ledger, stakeAccount(industry)),
     };
   });
 }
@@ -335,11 +334,11 @@ export function sectoralBalance(world: World): SectoralBalanceView {
     const sector = sectorOf.get(account.holder);
     // Houses, cars and repossessed collateral are real assets, not financial positions.
     if (!sector || account.kind === "equity" || /:(houses|cars)$/.test(account.id) || account.id === REPOSSESSED) continue;
-    const balance = world.ledger.balances[account.id] ?? 0;
+    const balance = balanceOf(world.ledger, account.id);
     totals[sector] += account.kind === "asset" ? balance : -balance;
   }
   // An Equity Stake is a claim the Treasury holds on an Industry, so it is that Industry's liability.
-  for (const i of world.industries) totals.industries -= world.ledger.balances[stakeAccount(i)] ?? 0;
+  for (const i of world.industries) totals.industries -= balanceOf(world.ledger, stakeAccount(i));
   return totals;
 }
 
@@ -366,7 +365,7 @@ export interface EducationView {
 
 export function education(world: World): EducationView {
   const line = world.industries.find((i) => i.id === "healthcare-education")?.lines.find((l) => l.productId === "education");
-  const owed = (pick: (id: string) => string) => world.cohorts.reduce((s, c) => s + (world.ledger.balances[pick(c.id)] ?? 0), 0);
+  const owed = (pick: (id: string) => string) => world.cohorts.reduce((s, c) => s + (balanceOf(world.ledger, pick(c.id))), 0);
   const e = world.education;
   return {
     price: line?.price ?? 0,
@@ -420,7 +419,7 @@ export function moneySupply(world: World): number {
 export function moneyHolders(world: World): { holder: string; balance: number }[] {
   const totals = new Map<string, number>();
   for (const account of world.ledger.accounts.filter((a) => a.isMoney)) {
-    totals.set(account.holder, (totals.get(account.holder) ?? 0) + (world.ledger.balances[account.id] ?? 0));
+    totals.set(account.holder, (totals.get(account.holder) ?? 0) + (balanceOf(world.ledger, account.id)));
   }
   return [...totals].map(([holder, balance]) => ({ holder, balance }));
 }
@@ -596,7 +595,7 @@ export function step(world: World, commands: Command[]): { world: World; events:
   // In a deflation episode the cost of living the wage floor stands for falls with prices, so wages can follow them down.
   const floorScale = world.deflation ? Math.min(1, computePriceIndex(world.industries) / world.deflation.base) : 1;
   const market = runLabor(care.industries, cohortsNext, world.labor, (i) =>
-    labourDemand(i, ledger.balances[industryAccounts(i).money] ?? 0, markups),
+    labourDemand(i, balanceOf(ledger, industryAccounts(i).money), markups),
   floorScale);
   const payroll = cohortsNext.filter(isWorkingAge).map((c) => ({ id: c.id, population: c.population - Math.min(c.students, c.population) })).filter((c) => c.population > 0);
   const flows: FiscalFlows = { ...NO_FLOWS };
@@ -616,7 +615,7 @@ export function step(world: World, commands: Command[]): { world: World; events:
     return run.industry;
   });
   flows.householdSpending += school.tuitionPaid;
-  const households = runHouseholds(cohortsNext, grain, world.waterCoverage, (id) => ledger.balances[`${id}:money`] ?? 0);
+  const households = runHouseholds(cohortsNext, grain, world.waterCoverage, (id) => balanceOf(ledger, `${id}:money`));
   for (const t of households.transfers) {
     ledger = post(
       ledger,
@@ -703,7 +702,7 @@ function toTransaction(world: World, command: Exclude<Command, { type: "setPolic
       const industry = world.industries.find((i) => i.id === command.industryId);
       if (!industry) throw new Error(`Unknown Industry ${command.industryId}`);
       const acct = industryAccounts(industry);
-      const owed = world.ledger.balances[acct.loanOwed] ?? 0;
+      const owed = balanceOf(world.ledger, acct.loanOwed);
       if (command.amount > owed) throw new Error(`${industry.name} owes only ${owed} on its Industry Loan, so ${command.amount} cannot be converted`);
       return {
         type: "equityConversion",

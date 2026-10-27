@@ -1,4 +1,4 @@
-import { post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
+import { post, type Account, type Ledger, type MoneyEvent, type Transaction, balanceOf } from "./ledger";
 import type { Industry } from "./industry";
 
 /** Policy the Government sets for the Commercial Bank. Rates are annual fractions (0.05 is 5%). */
@@ -59,24 +59,23 @@ export function lendingRates(policy: BankPolicy) {
   };
 }
 
-const bal = (ledger: Ledger, account: string) => ledger.balances[account] ?? 0;
 
 export function bankView(ledger: Ledger, policy: BankPolicy): CommercialBankView {
   return {
     policyRate: policy.policyRate,
     rates: lendingRates(policy),
-    loans: bal(ledger, "bank:loansReceivable"),
-    deposits: bal(ledger, "bank:depositsIssued"),
-    money: bal(ledger, "bank:money"),
-    equity: bal(ledger, "bank:equity"),
+    loans: balanceOf(ledger, "bank:loansReceivable"),
+    deposits: balanceOf(ledger, "bank:depositsIssued"),
+    money: balanceOf(ledger, "bank:money"),
+    equity: balanceOf(ledger, "bank:equity"),
     lending: lendingCapacity(ledger) > 0,
   };
 }
 
 export function lendingCapacity(ledger: Ledger): number {
-  const equity = bal(ledger, "bank:equity");
+  const equity = balanceOf(ledger, "bank:equity");
   if (equity <= 0) return 0;
-  return Math.max(0, Math.floor(equity * LEVERAGE) - bal(ledger, "bank:loansReceivable"));
+  return Math.max(0, Math.floor(equity * LEVERAGE) - balanceOf(ledger, "bank:loansReceivable"));
 }
 
 export interface CohortCredit {
@@ -107,12 +106,12 @@ export function runRetailCredit<C extends CohortCredit>(
     const cash = `${cohort.id}:money`;
     const owedAccount = `${cohort.id}:loanOwed`;
     let missed = cohort.missedPayments;
-    const owed = bal(ledger, owedAccount);
+    const owed = balanceOf(ledger, owedAccount);
 
     if (owed > 0) {
       const interest = Math.ceil((owed * rate) / DAYS_PER_YEAR);
       const principal = Math.min(owed, Math.ceil(owed / REPAYMENT_TICKS));
-      if (bal(ledger, cash) >= interest + principal) {
+      if (balanceOf(ledger, cash) >= interest + principal) {
         missed = 0;
         if (interest > 0) {
           apply({
@@ -137,7 +136,7 @@ export function runRetailCredit<C extends CohortCredit>(
       } else if (++missed >= DEFAULT_AFTER) {
         missed = 0;
         // The loss is paid out of the bank's own cash where it has any, which retires those deposits.
-        const destroyed = Math.min(owed, bal(ledger, "bank:money"));
+        const destroyed = Math.min(owed, balanceOf(ledger, "bank:money"));
         apply({
           type: destroyed > 0 ? "writeOff" : "writeOffLoss",
           entries: [
@@ -158,8 +157,8 @@ export function runRetailCredit<C extends CohortCredit>(
 
     if (missed === 0 && foodPrice > 0) {
       const dailyCost = Math.floor(cohort.population * GRAIN_NEED_PER_HEAD) * foodPrice;
-      const headroom = dailyCost * CREDIT_LIMIT_DAYS - bal(ledger, owedAccount);
-      const amount = Math.min(dailyCost - bal(ledger, cash), headroom, lendingCapacity(ledger));
+      const headroom = dailyCost * CREDIT_LIMIT_DAYS - balanceOf(ledger, owedAccount);
+      const amount = Math.min(dailyCost - balanceOf(ledger, cash), headroom, lendingCapacity(ledger));
       if (amount > 0) {
         apply({
           type: "retailLoan",

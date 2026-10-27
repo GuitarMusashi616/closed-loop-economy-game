@@ -1,4 +1,4 @@
-import { post, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
+import { post, type Ledger, type MoneyEvent, type Transaction, balanceOf } from "./ledger";
 import { industryAccounts, type Industry } from "./industry";
 
 /** Tax rates the player sets, in percent of wages (income) and of profit (corporate). */
@@ -40,7 +40,6 @@ export function governmentShare(stake: number): number {
   return stake <= 0 ? 0 : stake / (stake + PRIVATE_EQUITY);
 }
 
-const balance = (ledger: Ledger, account: string) => ledger.balances[account] ?? 0;
 
 /**
  * An Industry's profit this Tick is taxed, part of what is left is retained and the rest is paid as
@@ -76,12 +75,12 @@ export function payTaxAndDividends(
   };
 
   const profit = Math.max(0, industry.revenue - industry.costs);
-  const corporateTax = Math.min(Math.floor((profit * rates.corporate) / 100), balance(ledger, acct.money));
+  const corporateTax = Math.min(Math.floor((profit * rates.corporate) / 100), balanceOf(ledger, acct.money));
   pay("corporateTax", "treasury", corporateTax);
 
   const reserve = industry.targetHeadcount * industry.wage;
-  const dividend = Math.min(Math.floor((profit - corporateTax) * (1 - RETAINED_SHARE)), Math.max(0, balance(ledger, acct.money) - reserve));
-  const toTreasury = Math.floor(dividend * governmentShare(balance(ledger, stakeAccount(industry))));
+  const dividend = Math.min(Math.floor((profit - corporateTax) * (1 - RETAINED_SHARE)), Math.max(0, balanceOf(ledger, acct.money) - reserve));
+  const toTreasury = Math.floor(dividend * governmentShare(balanceOf(ledger, stakeAccount(industry))));
   pay("dividend", "treasury", toTreasury);
   pay("dividend", OWNER_COHORT, dividend - toTreasury);
   return { ledger, events, corporateTax, toOwners: dividend - toTreasury, toTreasury };
