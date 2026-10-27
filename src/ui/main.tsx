@@ -1,4 +1,4 @@
 import { createRoot } from "react-dom/client";
-import { Overview } from "./Overview";
+import { App } from "./App";
 
-createRoot(document.getElementById("root")!).render(<Overview />);
+createRoot(document.getElementById("root")!).render(<App />);

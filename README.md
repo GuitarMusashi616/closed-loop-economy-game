@@ -22,22 +22,21 @@ npm run dev
 
 Vite prints a local URL (usually http://localhost:5173). Open it in a browser.
 
-The game starts **paused** with almost no money. A first-run tutorial on the Overview screen walks you through bootstrapping the economy.
+The game starts **paused** with almost no money. A quest on the main screen walks you through bootstrapping the economy.
 
 ## Playing
 
-1. **Bootstrap.** Use **Monetization** to create money, make a **Grant**, or give an **Industry Loan** to an Industry so it can hire and produce.
-2. **Unpause** and pick a speed (1x, 2x, 4x). One Tick is one in-game day.
-3. **Watch.** The six screens are:
+1. **Bootstrap.** Click the big coin to **Monetize** (the chips under it pick the deal size), **Fund** an Industry with an Industry Loan, and give a **Grant** to a Household Cohort so citizens can buy food. Orders are queued and land on the next Day.
+2. **Unpause** and pick a speed with the controls in the top bar (⏸ ▶ ▶▶ ▶▶▶, or ⏭ to step one Day). One Tick is one in-game day.
+3. **Watch.** The main screen holds the whole core loop: money supply, Industry cards, Household cards, the nation's vitals, alerts and your next quest. The menu buttons on the right open:
 
-   | Screen | Shows |
+   | Menu | Shows |
    | --- | --- |
-   | Overview | Money supply, GDP, prices, Sectoral Balance, tutorial and alerts |
-   | Money flow | Sankey of where money moved over a chosen period, plus charts and "why" explanations |
-   | Industries | Workers, Capacity, stock, failures; Product markets with Markup / Discount (from Day 10) |
-   | Citizens | Household Cohort Welfare Stats, housing, education; zoom into a sampled Citizen |
-   | Treasury and Central Bank | Taxes, Government debt, pensions, Policy Rate, public services |
-   | Research | Technology tree and progress |
+   | Research | Technology tree by branch, with progress and the controls for choosing the active Technologies |
+   | Unlockables | Which levers are open and when the rest open |
+   | Government | Every lever: spending, taxes, debt, pensions, public services, Policy Rate |
+   | Statistics | Money flow Sankey and charts, Industries and Product markets, Citizens, balance sheets |
+   | Guide | Quest log and short explanations of how the economy works |
 
 4. **Levers unlock gradually:** spending, loans and Monetization first, taxes, debt, pensions and Markup / Discount on Day 10, the Policy Rate on Day 40.
 
@@ -72,4 +71,4 @@ See [`docs/known-gaps.md`](docs/known-gaps.md) for the full list. In short:
 
 - Outside Agriculture, Industries stay small, because only Households buy final goods. Balance numbers are placeholders and live in data files and constants.
 - Saves from older versions are rejected with a "predates …" error on load.
-- The UI has only been checked by type-check and build, not by automated browser tests.
+- The UI helpers are unit-tested, but the screens themselves have no automated browser tests.
