@@ -17,6 +17,10 @@ export interface Snapshot {
   tick: number;
   speed: Speed;
   moneySupply: number;
+  /** Value of final sales in the latest Tick. */
+  gdp: number;
+  /** Average Product price relative to the start, 1 at the start. */
+  priceIndex: number;
   holders: { holder: string; balance: number }[];
   log: MoneyEvent[];
   cohorts: Cohort[];

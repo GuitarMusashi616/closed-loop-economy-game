@@ -17,6 +17,7 @@ import { CREATION, balanceOf, DESTRUCTION, beginBatch, checkInvariants, endBatch
 export type { MoneyEvent, MoneyFlow } from "./ledger";
 export type { Explanation } from "./explain";
 export { InvariantViolation } from "./ledger";
+export { UNLOCK_TICK } from "./guide";
 export type { IndustryView, ProductLine } from "./industry";
 export type { Tastes, Tier } from "./products";
 export type { BankPolicy, CommercialBankView } from "./bank";
@@ -104,6 +105,9 @@ export interface TickStats {
   thirst: number;
   education: number;
   wealth: number;
+  /** Value of final sales (see `gdp`) and the price index, so the UI can show growth and inflation. Absent in older saves. */
+  gdp?: number;
+  priceIndex?: number;
 }
 
 const TREASURY = "Treasury";
@@ -315,6 +319,17 @@ export function productMarkets(world: World): ProductMarketView[] {
 /** Tax rates and what the latest Tick collected and paid out. */
 export function fiscal(world: World): FiscalFlows & { rates: TaxRates } {
   return { ...world.flows, rates: world.taxes };
+}
+
+/**
+ * Gross Domestic Product of the latest Tick, defined simply as the value of final sales: what Households paid
+ * for Products (tuition included) and for houses and cars, plus what the Treasury paid towards education and
+ * healthcare. Sales between Industries are intermediate and left out.
+ */
+export function gdp(world: World): number {
+  const f = world.flows;
+  const e = world.education;
+  return f.householdSpending + (f.durableSpending ?? 0) + (e.publicSpending ?? 0) + (e.healthcareFunding ?? 0);
 }
 
 export interface SectoralBalanceView {
@@ -599,7 +614,7 @@ export function step(world: World, commands: Command[]): { world: World; events:
     labourDemand(i, balanceOf(ledger, industryAccounts(i).money), markups),
   floorScale);
   const payroll = cohortsNext.filter(isWorkingAge).map((c) => ({ id: c.id, population: c.population - Math.min(c.students, c.population) })).filter((c) => c.population > 0);
-  const flows: FiscalFlows = { ...NO_FLOWS };
+  const flows: FiscalFlows = { ...NO_FLOWS, durableSpending: Object.values(housing.sales.revenue).reduce((s, n) => s + n, 0) };
   const next = market.industries.map((industry) => {
     const run = runIndustry(industry, ledger, { cohorts: cohortsNext, tastes, markups, payroll, incomeTax: taxes.income }, world.tick);
     ledger = run.ledger;
@@ -651,6 +666,8 @@ export function step(world: World, commands: Command[]): { world: World; events:
     thirst: summary.thirst,
     education: summary.education,
     wealth: summary.wealth,
+    gdp: gdp(after),
+    priceIndex: priceIndex(after),
   };
   const notes = explainTick(world.tick, { industries: world.industries, products: productMarkets(world) }, { industries: next, products: markets });
   return { world: { ...after, history: [...history(world), stats], notes: [...explanations(world), ...notes] }, events };

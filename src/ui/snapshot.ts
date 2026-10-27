@@ -1,4 +1,4 @@
-import { alerts, education, debtBurdens, durables, governmentDebt, leverStages, tutorial, research, explanations, history, moneyFlows, fiscal, sectoralBalance, cohortViews, cohorts, commercialBank, countrySummary, industries, moneyHolders, productMarkets, moneyLog, moneySupply, type Command, type World } from "../sim";
+import { gdp, priceIndex, alerts, education, debtBurdens, durables, governmentDebt, leverStages, tutorial, research, explanations, history, moneyFlows, fiscal, sectoralBalance, cohortViews, cohorts, commercialBank, countrySummary, industries, moneyHolders, productMarkets, moneyLog, moneySupply, type Command, type World } from "../sim";
 import type { Snapshot, Speed } from "./protocol";
 
 /** The charts show the latest this-many Ticks, and the event list the latest notes, so a long game does not make every snapshot bigger. */
@@ -12,6 +12,8 @@ export function buildSnapshot(world: World, speed: Speed, queued: Command[], flo
     tick: world.tick,
     speed,
     moneySupply: moneySupply(world),
+    gdp: gdp(world),
+    priceIndex: priceIndex(world),
     holders: moneyHolders(world),
     log: moneyLog(world),
     cohorts: cohorts(world),

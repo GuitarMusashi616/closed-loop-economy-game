@@ -15,9 +15,11 @@ export interface FiscalFlows {
   dividendsToTreasury: number;
   /** Money Households paid Industries for Products this Tick. */
   householdSpending: number;
+  /** Money Households paid for houses and cars this Tick. Absent in older saves. */
+  durableSpending?: number;
 }
 
-export const NO_FLOWS: FiscalFlows = { incomeTax: 0, corporateTax: 0, dividendsToOwners: 0, dividendsToTreasury: 0, householdSpending: 0 };
+export const NO_FLOWS: FiscalFlows = { incomeTax: 0, corporateTax: 0, dividendsToOwners: 0, dividendsToTreasury: 0, householdSpending: 0, durableSpending: 0 };
 
 /** The Household Cohort that owns the privately held part of every Industry. */
 export const OWNER_COHORT = "cohort-1";

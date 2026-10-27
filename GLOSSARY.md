@@ -84,6 +84,14 @@ _Avoid_: Subsidy, voucher
 The net money position of the Government, Households, Industries and Commercial Banks, which shows where Treasury surpluses drain demand.
 _Avoid_: Money flow, balance sheet
 
+**GDP**:
+The value of final sales in a Tick: what Households paid for Products, including tuition, houses and cars, plus what the Treasury paid towards healthcare and education. Sales between Industries are intermediate and not counted.
+_Avoid_: National income, output
+
+**Price Index**:
+The average Product price relative to the start, 1.00 at the start. Inflation is its change.
+_Avoid_: CPI
+
 **Product**:
 A good or service an Industry sells. An Industry can make several kinds.
 _Avoid_: Item, good
@@ -113,7 +121,7 @@ The Household Cohort that receives dividends from privately owned Industries.
 _Avoid_: Shareholders, investors, capitalists
 
 **Equity Stake**:
-Government ownership in an Industry, converted from an Industry Loan, which pays dividends to the Treasury.
+Government ownership in an Industry, converted from an Industry Loan, which pays dividends to the Treasury. It is written off, with the loan, if the Industry fails.
 _Avoid_: Nationalisation, shares
 
 **Tuition Loan**:
@@ -125,7 +133,7 @@ Progress on a Technology, at a rate set by the scientists employed in the Resear
 _Avoid_: Tech progress, science
 
 **Technology**:
-A node in the tech tree that unlocks new Industries or Products once researched.
+A node in the Technology tree that unlocks new Industries or Products once researched.
 _Avoid_: Tech, upgrade
 
 **Tick**:

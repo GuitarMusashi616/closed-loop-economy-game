@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import type { Command } from "../sim";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { UNLOCK_TICK, type Command } from "../sim";
 import { Citizens } from "./Citizens";
 import { Flows } from "./Flows";
 import { Industries } from "./Industries";
@@ -52,7 +52,56 @@ function describe(c: Command): string {
   }
 }
 
+const formatPercent = (fraction: number) => `${(fraction * PERCENT).toFixed(1)}%`;
+
 const noBorder = { border: 0, padding: 0 } as const;
+
+/** Starting values of the lever inputs. Rates are in percent as typed, then divided for the sim. */
+const DEFAULT_MONETIZE = 1000;
+const DEFAULT_GRANT = 100;
+const DEFAULT_LOAN = 1000;
+const DEFAULT_CONVERSION = 1000;
+const DEFAULT_DEBT_DEAL = 1000;
+const DEFAULT_POLICY_RATE_PERCENT = 3;
+const DEFAULT_RETAIL_SPREAD_PERCENT = 15;
+const PERCENT = 100;
+const DEFAULT_COHORT = "cohort-0";
+const DEFAULT_INDUSTRY = "agriculture";
+const SAVE_KEY = "closed-loop-economy-save";
+
+/** A number input and the button that acts on it, with optional extra controls (such as a Cohort or Industry picker) between them. */
+function NumberAction({ label, value, onChange, button, onSubmit, min = 1, max, step, children }: {
+  label?: string;
+  value: number;
+  onChange: (value: number) => void;
+  button: string;
+  onSubmit: () => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  children?: ReactNode;
+}) {
+  return (
+    <>
+      {label && `${label} `}
+      <input type="number" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />{" "}
+      {children}
+      {children && " "}
+      <button onClick={onSubmit}>{button}</button>
+    </>
+  );
+}
+
+/** Picks one of the Industries by id. */
+function IndustryPicker({ industries, value, onChange }: { industries: { id: string; name: string }[]; value: string; onChange: (id: string) => void }) {
+  return (
+    <select aria-label="Industry" value={value} onChange={(e) => onChange(e.target.value)}>
+      {industries.map((i) => (
+        <option key={i.id} value={i.id}>{i.name}</option>
+      ))}
+    </select>
+  );
+}
 
 export function Overview() {
   const worker = useRef<Worker | undefined>(undefined);
@@ -60,20 +109,22 @@ export function Overview() {
   const [error, setError] = useState<string>();
   const [citizen, setCitizen] = useState<Citizen>();
   const [screen, setScreen] = useState<Screen>("overview");
-  const [monetizeAmount, setMonetizeAmount] = useState(1000);
-  const [grantAmount, setGrantAmount] = useState(100);
-  const [loanAmount, setLoanAmount] = useState(1000);
-  const [policyRate, setPolicyRate] = useState(3);
-  const [retailSpread, setRetailSpread] = useState(15);
+  const [monetizeAmount, setMonetizeAmount] = useState(DEFAULT_MONETIZE);
+  const [grantAmount, setGrantAmount] = useState(DEFAULT_GRANT);
+  const [loanAmount, setLoanAmount] = useState(DEFAULT_LOAN);
+  const [policyRate, setPolicyRate] = useState(DEFAULT_POLICY_RATE_PERCENT);
+  const [retailSpread, setRetailSpread] = useState(DEFAULT_RETAIL_SPREAD_PERCENT);
   const [incomeTax, setIncomeTax] = useState(0);
   const [corporateTax, setCorporateTax] = useState(0);
   const [pensionRate, setPensionRate] = useState(0);
   const [healthcareShare, setHealthcareShare] = useState(0);
   const [educationShare, setEducationShare] = useState(0);
-  const [convertAmount, setConvertAmount] = useState(1000);
-  const [grantCohort, setGrantCohort] = useState("cohort-0");
-  const [debtAmount, setDebtAmount] = useState(1000);
+  const [convertAmount, setConvertAmount] = useState(DEFAULT_CONVERSION);
+  const [grantCohort, setGrantCohort] = useState(DEFAULT_COHORT);
+  const [debtAmount, setDebtAmount] = useState(DEFAULT_DEBT_DEAL);
   const [debtHolder, setDebtHolder] = useState("bank");
+  const [loanIndustry, setLoanIndustry] = useState(DEFAULT_INDUSTRY);
+  const [convertIndustry, setConvertIndustry] = useState(DEFAULT_INDUSTRY);
 
   useEffect(() => {
     const w = new Worker(new URL("./sim.worker.ts", import.meta.url), { type: "module" });
@@ -85,7 +136,7 @@ export function Overview() {
         setCitizen(message.citizen);
       } else if (message.type === "saved") {
         try {
-          localStorage.setItem("closed-loop-economy-save", message.save);
+          localStorage.setItem(SAVE_KEY, message.save);
         } catch {
           setError("Could not save: browser storage is unavailable or full.");
         }
@@ -105,7 +156,7 @@ export function Overview() {
   const load = () => {
     let save: string | null = null;
     try {
-      save = localStorage.getItem("closed-loop-economy-save");
+      save = localStorage.getItem(SAVE_KEY);
     } catch {
       // Treated the same as no save below.
     }
@@ -114,7 +165,9 @@ export function Overview() {
   };
 
   if (!snapshot) return <p>Loading…</p>;
-  const { tick, seed, speed, moneySupply, holders, log, cohorts, households, summary, industries, products, wageMarkup, bank, queued, fiscal, sectoral, education, flows, flowWindow, history, notes, stages, alerts, tutorial, durables, debt, burdens } = snapshot;
+  const { tick, seed, speed, moneySupply, gdp, priceIndex, holders, log, cohorts, households, summary, industries, products, wageMarkup, bank, queued, fiscal, sectoral, education, flows, flowWindow, history, notes, stages, alerts, tutorial, durables, debt, burdens } = snapshot;
+  const [previousIndex, latestIndex] = history.slice(-2).map((h) => h.priceIndex);
+  const latestInflation = previousIndex && latestIndex ? latestIndex / previousIndex - 1 : null;
   const nextStep = tutorial.find((t) => !t.done);
 
   return (
@@ -157,9 +210,18 @@ export function Overview() {
                   <li key={t.id} style={{ textDecoration: t.done ? "line-through" : "none", fontWeight: t === nextStep ? "bold" : "normal" }}>{t.text}</li>
                 ))}
               </ol>
-              <p>The levers are on the Treasury and Central Bank screen. Taxes open on Day 10 and the Policy Rate on Day 40.</p>
+              <p>The levers are on the Treasury and Central Bank screen. Taxes open on Day {UNLOCK_TICK.taxes} and the Policy Rate on Day {UNLOCK_TICK.policyRate}.</p>
             </section>
           )}
+          <h2>The economy</h2>
+          <table>
+            <tbody>
+              <tr><td>GDP (final sales last Tick)</td><td align="right">{gdp.toLocaleString()}</td></tr>
+              <tr><td>Price index (1.00 at the start)</td><td align="right">{priceIndex.toFixed(2)}</td></tr>
+              <tr><td>Inflation since the start</td><td align="right">{formatPercent(priceIndex - 1)}</td></tr>
+              <tr><td>Inflation, latest Tick</td><td align="right">{latestInflation === null ? "-" : formatPercent(latestInflation)}</td></tr>
+            </tbody>
+          </table>
           <h2>Money supply: {moneySupply.toLocaleString()}</h2>
           <table>
             <thead>
@@ -209,7 +271,7 @@ export function Overview() {
       {screen === "industries" && (
         <>
           <Industries industries={industries} />
-          <Locked open={stages.taxes} stage="Markup / Discount unlocks on Day 10" />
+          <Locked open={stages.taxes} stage={`Markup / Discount unlocks on Day ${UNLOCK_TICK.taxes}`} />
           <fieldset disabled={!stages.taxes} style={noBorder}>
             <Products products={products} wageMarkup={wageMarkup} onMarkup={(target, percent) => cmd({ type: "setMarkup", target, percent })} />
           </fieldset>
@@ -262,35 +324,34 @@ export function Overview() {
         <>
           <h2>Spending, loans and Monetization</h2>
           <p>
-            <input type="number" min={1} value={monetizeAmount} onChange={(e) => setMonetizeAmount(Number(e.target.value))} />{" "}
-            <button onClick={() => cmd({ type: "monetize", amount: monetizeAmount })}>Monetize</button>
+            <NumberAction value={monetizeAmount} onChange={setMonetizeAmount} button="Monetize" onSubmit={() => cmd({ type: "monetize", amount: monetizeAmount })} />
           </p>
           <p>
-            <input type="number" min={1} value={grantAmount} onChange={(e) => setGrantAmount(Number(e.target.value))} />{" "}
-            <select value={grantCohort} onChange={(e) => setGrantCohort(e.target.value)}>
-              {cohorts.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>{" "}
-            <button onClick={() => cmd({ type: "grant", cohortId: grantCohort, amount: grantAmount })}>Grant</button>
+            <NumberAction value={grantAmount} onChange={setGrantAmount} button="Grant" onSubmit={() => cmd({ type: "grant", cohortId: grantCohort, amount: grantAmount })}>
+              <select aria-label="Household Cohort" value={grantCohort} onChange={(e) => setGrantCohort(e.target.value)}>
+                {cohorts.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </NumberAction>
           </p>
           <p>
-            <input type="number" min={1} value={loanAmount} onChange={(e) => setLoanAmount(Number(e.target.value))} />{" "}
-            <button onClick={() => cmd({ type: "industryLoan", industryId: "agriculture", amount: loanAmount })}>Industry Loan to Agriculture</button>
+            <NumberAction value={loanAmount} onChange={setLoanAmount} button="Industry Loan" onSubmit={() => cmd({ type: "industryLoan", industryId: loanIndustry, amount: loanAmount })}>
+              <IndustryPicker industries={industries} value={loanIndustry} onChange={setLoanIndustry} />
+            </NumberAction>
           </p>
           <p>
-            <input type="number" min={1} value={convertAmount} onChange={(e) => setConvertAmount(Number(e.target.value))} />{" "}
-            <button onClick={() => cmd({ type: "convertLoan", industryId: "agriculture", amount: convertAmount })}>
-              Convert Agriculture loan to Equity Stake
-            </button>
+            <NumberAction value={convertAmount} onChange={setConvertAmount} button="Convert loan to Equity Stake" onSubmit={() => cmd({ type: "convertLoan", industryId: convertIndustry, amount: convertAmount })}>
+              <IndustryPicker industries={industries} value={convertIndustry} onChange={setConvertIndustry} />
+            </NumberAction>
           </p>
 
           <h2>Taxes</h2>
-          <Locked open={stages.taxes} stage="taxes, Government debt and pensions unlock on Day 10" />
+          <Locked open={stages.taxes} stage={`taxes, Government debt and pensions unlock on Day ${UNLOCK_TICK.taxes}`} />
           <fieldset disabled={!stages.taxes} style={noBorder}>
             <p>
-              Income tax (%) <input type="number" min={0} max={100} value={incomeTax} onChange={(e) => setIncomeTax(Number(e.target.value))} />{" "}
-              Corporate tax (%) <input type="number" min={0} max={100} value={corporateTax} onChange={(e) => setCorporateTax(Number(e.target.value))} />{" "}
+              Income tax (%) <input type="number" min={0} max={PERCENT} value={incomeTax} onChange={(e) => setIncomeTax(Number(e.target.value))} />{" "}
+              Corporate tax (%) <input type="number" min={0} max={PERCENT} value={corporateTax} onChange={(e) => setCorporateTax(Number(e.target.value))} />{" "}
               <button onClick={() => cmd({ type: "setTaxRates", income: incomeTax, corporate: corporateTax })}>Set tax rates</button>
             </p>
           </fieldset>
@@ -303,16 +364,16 @@ export function Overview() {
           <h2>Government debt</h2>
           <fieldset disabled={!stages.taxes} style={noBorder}>
             <p>
-              <input type="number" min={1} value={debtAmount} onChange={(e) => setDebtAmount(Number(e.target.value))} />{" "}
-              <select value={debtHolder} onChange={(e) => setDebtHolder(e.target.value)}>
-                <option value="bank">Commercial Bank</option>
-                <option value="centralBank">Central Bank (retire only)</option>
-                {cohorts.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>{" "}
-              <button onClick={() => cmd({ type: "issueDebt", holder: debtHolder, amount: debtAmount })}>Sell debt</button>{" "}
-              <button onClick={() => cmd({ type: "retireDebt", holder: debtHolder, amount: debtAmount })}>Retire debt</button>
+              <NumberAction value={debtAmount} onChange={setDebtAmount} button="Sell debt" onSubmit={() => cmd({ type: "issueDebt", holder: debtHolder, amount: debtAmount })}>
+                <select aria-label="Debt holder" value={debtHolder} onChange={(e) => setDebtHolder(e.target.value)}>
+                  <option value="bank">Commercial Bank</option>
+                  <option value="centralBank">Central Bank (retire only)</option>
+                  {cohorts.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+                <button onClick={() => cmd({ type: "retireDebt", holder: debtHolder, amount: debtAmount })}>Retire debt</button>
+              </NumberAction>
             </p>
           </fieldset>
           <p>
@@ -338,18 +399,15 @@ export function Overview() {
           <h2>Pensions</h2>
           <fieldset disabled={!stages.taxes} style={noBorder}>
             <p>
-              Payout per retiree per Tick <input type="number" min={0} step={0.05} value={pensionRate} onChange={(e) => setPensionRate(Number(e.target.value))} />{" "}
-              <button onClick={() => cmd({ type: "setPensionRate", rate: pensionRate })}>Set pension rate</button>
+              <NumberAction label="Payout per retiree per Tick" min={0} step={0.05} value={pensionRate} onChange={setPensionRate} button="Set pension rate" onSubmit={() => cmd({ type: "setPensionRate", rate: pensionRate })} />
             </p>
           </fieldset>
 
           <h2>Education and public services</h2>
           <fieldset disabled={!stages.taxes} style={noBorder}>
             <p>
-              Healthcare Public Funding Share (%) <input type="number" min={0} max={100} value={healthcareShare} onChange={(e) => setHealthcareShare(Number(e.target.value))} />{" "}
-              <button onClick={() => cmd({ type: "setPublicFunding", service: "healthcare", percent: healthcareShare })}>Set</button>{" "}
-              Education Public Funding Share (%) <input type="number" min={0} max={100} value={educationShare} onChange={(e) => setEducationShare(Number(e.target.value))} />{" "}
-              <button onClick={() => cmd({ type: "setPublicFunding", service: "education", percent: educationShare })}>Set</button>{" "}
+              <NumberAction label="Healthcare Public Funding Share (%)" min={0} max={PERCENT} value={healthcareShare} onChange={setHealthcareShare} button="Set" onSubmit={() => cmd({ type: "setPublicFunding", service: "healthcare", percent: healthcareShare })} />{" "}
+              <NumberAction label="Education Public Funding Share (%)" min={0} max={PERCENT} value={educationShare} onChange={setEducationShare} button="Set" onSubmit={() => cmd({ type: "setPublicFunding", service: "education", percent: educationShare })} />{" "}
               <button onClick={() => cmd({ type: "setGovernmentEducationLoans", enabled: !education.governmentLoans })}>
                 Government Tuition Loans: {education.governmentLoans ? "on (turn off)" : "off (turn on)"}
               </button>
@@ -360,15 +418,13 @@ export function Overview() {
           </p>
 
           <h2>Commercial Bank</h2>
-          <Locked open={stages.policyRate} stage="the Policy Rate unlocks on Day 40" />
+          <Locked open={stages.policyRate} stage={`the Policy Rate unlocks on Day ${UNLOCK_TICK.policyRate}`} />
           <fieldset disabled={!stages.policyRate} style={noBorder}>
             <p>
-              Policy Rate (%) <input type="number" min={0} step={0.5} value={policyRate} onChange={(e) => setPolicyRate(Number(e.target.value))} />{" "}
-              <button onClick={() => cmd({ type: "setPolicyRate", rate: policyRate / 100 })}>Set Policy Rate</button>
+              <NumberAction label="Policy Rate (%)" min={0} step={0.5} value={policyRate} onChange={setPolicyRate} button="Set Policy Rate" onSubmit={() => cmd({ type: "setPolicyRate", rate: policyRate / PERCENT })} />
             </p>
             <p>
-              Retail spread (%) <input type="number" min={0} step={0.5} value={retailSpread} onChange={(e) => setRetailSpread(Number(e.target.value))} />{" "}
-              <button onClick={() => cmd({ type: "setSpreads", retail: retailSpread / 100 })}>Set spread</button>
+              <NumberAction label="Retail spread (%)" min={0} step={0.5} value={retailSpread} onChange={setRetailSpread} button="Set spread" onSubmit={() => cmd({ type: "setSpreads", retail: retailSpread / PERCENT })} />
             </p>
           </fieldset>
           <p>
