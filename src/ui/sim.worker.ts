@@ -1,4 +1,5 @@
-import { alerts, education, debtBurdens, durables, governmentDebt, leverStages, tutorial, research, explanations, history, moneyFlows, fiscal, sectoralBalance, cohortViews, cohorts, commercialBank, countrySummary, createWorld, sampleCitizen, deserialize, industries, moneyHolders, productMarkets, moneyLog, moneySupply, serialize, step, type Command } from "../sim";
+import { createWorld, sampleCitizen, deserialize, serialize, step, type Command } from "../sim";
+import { buildSnapshot } from "./snapshot";
 import type { FromWorker, Snapshot, Speed, ToWorker } from "./protocol";
 
 const TICK_MS = 1000;
@@ -13,38 +14,7 @@ let timer: ReturnType<typeof setInterval> | undefined;
 const send = (message: FromWorker) => postMessage(message);
 
 function snapshot(): Snapshot {
-  return {
-    seed: world.seed,
-    tick: world.tick,
-    speed,
-    moneySupply: moneySupply(world),
-    holders: moneyHolders(world),
-    log: moneyLog(world),
-    cohorts: cohorts(world),
-    households: cohortViews(world),
-    summary: countrySummary(world),
-    industries: industries(world),
-    products: productMarkets(world),
-    wageMarkup: world.markups.wages ?? 0,
-    bank: commercialBank(world),
-    queued,
-    fiscal: fiscal(world),
-    sectoral: sectoralBalance(world),
-    education: education(world),
-    research: research(world),
-    flowWindow,
-    flows: moneyFlows(world, flowWindow === 0 ? 0 : Math.max(0, world.tick - flowWindow), world.tick),
-    history: history(world),
-    notes: explanations(world),
-    stages: leverStages(world),
-    alerts: alerts(world),
-    tutorial: tutorial(world),
-    durables: durables(world),
-    debt: governmentDebt(world),
-    burdens: debtBurdens(world),
-    pensionRate: world.pensionRate,
-    pensionsPaid: world.pensionsPaid,
-  };
+  return buildSnapshot(world, speed, queued, flowWindow);
 }
 
 function advance() {

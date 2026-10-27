@@ -12,7 +12,7 @@ import { nextEpisode, type DeflationEpisode, debtAccounts, debtBurdens as comput
 import { CAR_PER, HOUSE_SHELTERS, REPOSSESSED, REPOSSESSED_ACCOUNT, cohortHousingAccounts, durablesView, foundingDurables, homelessShare, runHousing, runPensions, type DurablesView } from "./housing";
 import { alertsFor, assertUnlocked, stagesAt, tutorialFor, type Alert, type LeverStages, type TutorialStep } from "./guide";
 import { explainTick, type Explanation } from "./explain";
-import { CREATION, DESTRUCTION, checkInvariants, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
+import { CREATION, DESTRUCTION, beginBatch, checkInvariants, endBatch, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
 
 export type { MoneyEvent, MoneyFlow } from "./ledger";
 export type { Explanation } from "./explain";
@@ -460,8 +460,12 @@ export function moneyFlows(world: World, fromTick: number, toTick: number): Mone
   const totals = new Map<string, FlowLink>();
   let created = 0;
   let destroyed = 0;
-  for (const f of world.ledger.flows ?? []) {
-    if (f.tick < fromTick || f.tick > toTick) continue;
+  // Flows are posted in Tick order, so walk back from the newest and stop once past the window.
+  const all = world.ledger.flows ?? [];
+  for (let i = all.length - 1; i >= 0; i--) {
+    const f = all[i]!;
+    if (f.tick < fromTick) break;
+    if (f.tick > toTick) continue;
     const from = sectorOf.get(f.from) ?? f.from;
     const to = sectorOf.get(f.to) ?? f.to;
     if (from === CREATION) created += f.amount;
@@ -511,7 +515,7 @@ export function deserialize(save: string): World {
 }
 
 export function step(world: World, commands: Command[]): { world: World; events: MoneyEvent[] } {
-  let ledger = world.ledger;
+  let ledger = beginBatch(world.ledger);
   let started = world.industries;
   let policy = world.policy;
   let markups = world.markups;
@@ -632,6 +636,7 @@ export function step(world: World, commands: Command[]): { world: World; events:
   const contracted = before > 0 && (before - ledgerMoneySupply(ledger)) / before >= DEFLATION_TRIGGER;
   const deflation = nextEpisode(world.deflation ?? null, contracted, computePriceIndex(world.industries), computePriceIndex(next));
   checkInvariants(ledger);
+  ledger = endBatch(ledger);
   const after: World = { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: next, labor: market.labor, policy, tastes, markups, taxes, pensionRate, pensionsPaid: pensions.paid, education: { ...eduPolicy, demand: school.demand, publicSpending: school.publicSpending, healthcareFunding: care.paid, tuitionPaid: school.tuitionPaid }, flows, research: researchState, ledger, log: [...world.log, ...events], deflation };
   const markets = productMarkets(after);
   const summary = countrySummary(after);

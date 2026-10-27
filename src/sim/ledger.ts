@@ -15,6 +15,19 @@ export interface Ledger {
   balances: Record<string, number>;
   /** Every movement of money between holders, as it was posted. Absent in older saves. */
   flows?: MoneyFlow[];
+  /** Set only inside a Tick: `flows` is a private copy that `post` may append to in place instead of copying it for every transaction. */
+  ownsFlows?: boolean;
+}
+
+/** Gives the ledger a private copy of its flows so a Tick's many postings append in O(1) rather than copying the whole history each time. */
+export function beginBatch(ledger: Ledger): Ledger {
+  return { ...ledger, flows: (ledger.flows ?? []).slice(), ownsFlows: true };
+}
+
+/** Ends a batch: the ledger is a plain value again and its flows must not be appended to in place. */
+export function endBatch(ledger: Ledger): Ledger {
+  const { ownsFlows: _owned, ...rest } = ledger;
+  return rest;
 }
 
 export const CREATION = "Money creation";
@@ -130,6 +143,7 @@ export function post(
     balances[account.id] = (balances[account.id] ?? 0) + (account.kind === "asset" ? net : -net);
   }
   const next: Ledger = { accounts: ledger.accounts, balances };
+  if (ledger.ownsFlows) next.ownsFlows = true;
 
   const delta = ledgerMoneySupply(next) - ledgerMoneySupply(ledger);
   const rules: Record<TransactionType, { effect: SupplyEffect; cause: string }> = TRANSACTION_TYPES;
@@ -142,7 +156,13 @@ export function post(
     throw new InvariantViolation(`${tx.type} may ${effect} money but moved the supply by ${delta}`);
   }
 
-  next.flows = [...(ledger.flows ?? []), ...flowsOf(ledger, next, delta, cause, tick)];
+  const posted = flowsOf(ledger, next, delta, cause, tick);
+  if (ledger.ownsFlows && ledger.flows) {
+    for (const flow of posted) ledger.flows.push(flow);
+    next.flows = ledger.flows;
+  } else {
+    next.flows = [...(ledger.flows ?? []), ...posted];
+  }
 
   const event: MoneyEvent | null =
     delta === 0 ? null : { tick, direction: delta > 0 ? "created" : "destroyed", amount: Math.abs(delta), cause };
