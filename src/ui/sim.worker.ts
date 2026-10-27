@@ -1,4 +1,4 @@
-import { cohorts, createWorld, deserialize, industries, moneyHolders, moneyLog, moneySupply, serialize, step, type Command } from "../sim";
+import { cohorts, commercialBank, createWorld, deserialize, industries, moneyHolders, moneyLog, moneySupply, serialize, step, type Command } from "../sim";
 import type { FromWorker, Snapshot, Speed, ToWorker } from "./protocol";
 
 const TICK_MS = 1000;
@@ -20,6 +20,7 @@ function snapshot(): Snapshot {
     log: moneyLog(world),
     cohorts: cohorts(world),
     industries: industries(world),
+    bank: commercialBank(world),
     queued,
   };
 }

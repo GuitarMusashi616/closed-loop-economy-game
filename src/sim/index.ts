@@ -1,20 +1,26 @@
 import { seededRandom } from "./rng";
 import { industryAccounts, newAgriculture, runIndustry, type Industry, type IndustryView } from "./industry";
+import { BANK_ACCOUNTS, FOUNDING_BALANCES, bankView, newPolicy, runRetailCredit, type BankPolicy, type CommercialBankView } from "./bank";
 import { checkInvariants, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
 
 export type { MoneyEvent } from "./ledger";
 export { InvariantViolation } from "./ledger";
 export type { IndustryView } from "./industry";
+export type { BankPolicy, CommercialBankView } from "./bank";
 
 export type Command =
   | { type: "monetize"; amount: number }
   | { type: "grant"; cohortId: string; amount: number }
-  | { type: "industryLoan"; industryId: string; amount: number };
+  | { type: "industryLoan"; industryId: string; amount: number }
+  | { type: "setPolicyRate"; rate: number }
+  | { type: "setSpreads"; retail?: number; collateralised?: number };
 
 export interface Cohort {
   id: string;
   name: string;
   population: number;
+  /** Consecutive Ticks the cohort has missed a Retail Credit payment. */
+  missedPayments: number;
 }
 
 export interface World {
@@ -22,6 +28,7 @@ export interface World {
   tick: number;
   cohorts: Cohort[];
   industries: Industry[];
+  policy: BankPolicy;
   ledger: Ledger;
   log: MoneyEvent[];
 }
@@ -53,10 +60,12 @@ export function createWorld(seed: number): World {
     id: `cohort-${i}`,
     name,
     population: 20000 + Math.floor(random() * 20000),
+    missedPayments: 0,
   }));
   const cohortAccounts = cohorts.flatMap((c): Account[] => [
     { id: `${c.id}:money`, kind: "asset", holder: c.name, isMoney: true },
     { id: `${c.id}:equity`, kind: "equity", holder: c.name, isMoney: false },
+    { id: `${c.id}:loanOwed`, kind: "liability", holder: c.name, isMoney: false },
   ]);
   const industries = [newAgriculture()];
   return {
@@ -64,14 +73,24 @@ export function createWorld(seed: number): World {
     tick: 0,
     cohorts,
     industries,
-    ledger: emptyLedger([
+    policy: newPolicy(),
+    ledger: withFounding(emptyLedger([
       ...ACCOUNTS,
+      ...BANK_ACCOUNTS,
       { id: "treasury:equity", kind: "equity", holder: TREASURY, isMoney: false },
       ...cohortAccounts,
       ...industries.flatMap(accountsFor),
-    ]),
+    ])),
     log: [],
   };
+}
+
+function withFounding(ledger: Ledger): Ledger {
+  return { ...ledger, balances: { ...ledger.balances, ...FOUNDING_BALANCES } };
+}
+
+export function commercialBank(world: World): CommercialBankView {
+  return bankView(world.ledger, world.policy);
 }
 
 export function cohorts(world: World): Cohort[] {
@@ -115,6 +134,7 @@ export function serialize(world: World): string {
 export function deserialize(save: string): World {
   const world = JSON.parse(save) as World;
   if (!Array.isArray(world.industries)) throw new Error("Save predates Industries and cannot be loaded");
+  if (!world.policy) throw new Error("Save predates the Commercial Bank and cannot be loaded");
   checkInvariants(world.ledger);
   return world;
 }
@@ -122,8 +142,13 @@ export function deserialize(save: string): World {
 export function step(world: World, commands: Command[]): { world: World; events: MoneyEvent[] } {
   let ledger = world.ledger;
   let started = world.industries;
+  let policy = world.policy;
   const events: MoneyEvent[] = [];
   for (const command of commands) {
+    if (command.type === "setPolicyRate" || command.type === "setSpreads") {
+      policy = applyPolicy(policy, command);
+      continue;
+    }
     const result = post(ledger, toTransaction(world, command), world.tick);
     ledger = result.ledger;
     if (result.event) events.push(result.event);
@@ -131,17 +156,35 @@ export function step(world: World, commands: Command[]): { world: World; events:
       started = started.map((i) => (i.id === command.industryId ? { ...i, started: true } : i));
     }
   }
+  const credit = runRetailCredit(ledger, world.cohorts, started, policy, world.tick);
+  ledger = credit.ledger;
+  events.push(...credit.events);
+  const cohortsNext = credit.cohorts;
   const next = started.map((industry) => {
-    const run = runIndustry(industry, ledger, world.cohorts, world.tick);
+    const run = runIndustry(industry, ledger, cohortsNext, world.tick);
     ledger = run.ledger;
     events.push(...run.events);
     return run.industry;
   });
   checkInvariants(ledger);
-  return { world: { ...world, tick: world.tick + 1, industries: next, ledger, log: [...world.log, ...events] }, events };
+  return { world: { ...world, tick: world.tick + 1, cohorts: cohortsNext, industries: next, policy, ledger, log: [...world.log, ...events] }, events };
 }
 
-function toTransaction(world: World, command: Command): Transaction {
+function applyPolicy(policy: BankPolicy, command: Extract<Command, { type: "setPolicyRate" | "setSpreads" }>): BankPolicy {
+  const check = (name: string, value: number) => {
+    if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be a non-negative number, got ${value}`);
+    return value;
+  };
+  if (command.type === "setPolicyRate") return { ...policy, policyRate: check("Policy rate", command.rate) };
+  return {
+    ...policy,
+    retailSpread: command.retail === undefined ? policy.retailSpread : check("Retail spread", command.retail),
+    collateralisedSpread:
+      command.collateralised === undefined ? policy.collateralisedSpread : check("Collateralised spread", command.collateralised),
+  };
+}
+
+function toTransaction(world: World, command: Exclude<Command, { type: "setPolicyRate" | "setSpreads" }>): Transaction {
   if (!Number.isSafeInteger(command.amount) || command.amount <= 0) {
     throw new Error(`${command.type} amount must be a positive whole number, got ${command.amount}`);
   }

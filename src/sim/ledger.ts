@@ -25,6 +25,11 @@ export const TRANSACTION_TYPES = {
   industryLoan: { effect: "none", cause: "Industry Loan" },
   wages: { effect: "none", cause: "Wages" },
   sale: { effect: "none", cause: "Sale" },
+  retailLoan: { effect: "create", cause: "Retail Credit" },
+  retailRepayment: { effect: "destroy", cause: "Retail Credit repayment" },
+  retailInterest: { effect: "none", cause: "Retail Credit interest" },
+  writeOff: { effect: "destroy", cause: "Write-off" },
+  writeOffLoss: { effect: "none", cause: "Write-off" },
 } as const satisfies Record<string, { effect: SupplyEffect; cause: string }>;
 
 export type TransactionType = keyof typeof TRANSACTION_TYPES;
@@ -122,7 +127,7 @@ export function checkInvariants(ledger: Ledger): void {
   if (assets !== claims) {
     throw new InvariantViolation(`assets (${assets}) do not equal liabilities plus equity (${claims})`);
   }
-  const issued = ledger.balances["centralBank:moneyIssued"] ?? 0;
+  const issued = (ledger.balances["centralBank:moneyIssued"] ?? 0) + (ledger.balances["bank:depositsIssued"] ?? 0);
   const supply = ledgerMoneySupply(ledger);
   if (issued !== supply) {
     throw new InvariantViolation(`money supply (${supply}) differs from money issued (${issued})`);

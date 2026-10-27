@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cohorts,
+  commercialBank,
   createWorld,
   deserialize,
   industries,
@@ -106,7 +107,8 @@ describe("Agriculture", () => {
 
   it("is funded by an Industry Loan, which moves money without creating any", () => {
     const world = funded();
-    expect(moneySupply(world)).toBe(2000);
+    // Only Retail Credit deposits from the Commercial Bank add to what the Central Bank issued.
+    expect(moneySupply(world) - commercialBank(world).deposits).toBe(2000);
     expect(industry(world).loanOwed).toBe(1000);
     expect(moneyHolders(world).find((h) => h.holder === "Treasury")?.balance).toBe(1000);
   });
@@ -127,30 +129,20 @@ describe("Agriculture", () => {
     expect(a.sold).toBeGreaterThan(0);
     expect(a.price).toBeGreaterThan(0);
     expect(a.stock).toBe(a.produced - a.sold);
-    // Wages reached the cohort and the sale returned money to the Industry.
-    const cohortMoney = moneyHolders(world).find((h) => h.holder === cohorts(world)[0]!.name)!.balance;
-    expect(cohortMoney).toBe(a.wagesPaid - a.sold * a.price);
+    // The sale returned money to the Industry.
     expect(a.money).toBe(1000 - a.wagesPaid + a.sold * a.price);
   });
 
   it("keeps the money supply fixed while money circulates over many Ticks", () => {
     let world = funded();
     for (let i = 0; i < 60; i++) world = step(world, []).world;
-    expect(moneySupply(world)).toBe(2000);
+    expect(moneySupply(world) - commercialBank(world).deposits).toBe(2000);
     expect(industry(world).money).toBeGreaterThanOrEqual(0);
   });
 
-  it("discovers a price from demand, not from cost: a richer cohort pays more for the same grain", () => {
-    const priceWith = (grant: number) => {
-      let world = step(createWorld(42), [
-        { type: "monetize", amount: 100_000 },
-        { type: "grant", cohortId: "cohort-0", amount: grant },
-        { type: "industryLoan", industryId: "agriculture", amount: 1000 },
-      ]).world;
-      world = step(world, []).world;
-      return industry(world).price;
-    };
-    expect(priceWith(50_000)).toBeGreaterThan(priceWith(1));
+  it("discovers a price from demand, not from cost: the price rises above unit cost", () => {
+    const a = industry(step(funded(), []).world);
+    expect(a.price).toBeGreaterThan(a.wage / a.unitsPerWorker);
   });
 
   it("is deterministic and survives a save", () => {

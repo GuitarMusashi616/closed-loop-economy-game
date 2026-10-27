@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { Command } from "../sim";
 import { Industries } from "./Industries";
 import type { FromWorker, Snapshot, Speed, ToWorker } from "./protocol";
 
@@ -9,6 +10,17 @@ const SPEEDS: { label: string; speed: Speed }[] = [
   { label: "4x", speed: 4 },
 ];
 
+function describe(c: Command): string {
+  switch (c.type) {
+    case "setPolicyRate":
+      return `Policy Rate ${(c.rate * 100).toFixed(1)}%`;
+    case "setSpreads":
+      return "rate spreads";
+    default:
+      return `${c.type} ${c.amount}`;
+  }
+}
+
 export function Overview() {
   const worker = useRef<Worker | undefined>(undefined);
   const [snapshot, setSnapshot] = useState<Snapshot>();
@@ -16,6 +28,8 @@ export function Overview() {
   const [monetizeAmount, setMonetizeAmount] = useState(1000);
   const [grantAmount, setGrantAmount] = useState(100);
   const [loanAmount, setLoanAmount] = useState(1000);
+  const [policyRate, setPolicyRate] = useState(3);
+  const [retailSpread, setRetailSpread] = useState(15);
   const [grantCohort, setGrantCohort] = useState("cohort-0");
 
   useEffect(() => {
@@ -54,7 +68,7 @@ export function Overview() {
   };
 
   if (!snapshot) return <p>Loading…</p>;
-  const { tick, seed, speed, moneySupply, holders, log, cohorts, industries, queued } = snapshot;
+  const { tick, seed, speed, moneySupply, holders, log, cohorts, industries, bank, queued } = snapshot;
 
   return (
     <main style={{ fontFamily: "system-ui", maxWidth: 800, margin: "2rem auto", padding: "0 1rem" }}>
@@ -111,9 +125,24 @@ export function Overview() {
           Industry Loan to Agriculture
         </button>
       </p>
-      {queued.length > 0 && (
-        <p>Queued for the next Tick: {queued.map((c) => `${c.type} ${c.amount}`).join(", ")}</p>
-      )}
+      <h2>Commercial Bank</h2>
+      <p>
+        Policy Rate (%) <input type="number" min={0} step={0.5} value={policyRate} onChange={(e) => setPolicyRate(Number(e.target.value))} />{" "}
+        <button onClick={() => send({ type: "command", command: { type: "setPolicyRate", rate: policyRate / 100 } })}>Set Policy Rate</button>
+      </p>
+      <p>
+        Retail spread (%) <input type="number" min={0} step={0.5} value={retailSpread} onChange={(e) => setRetailSpread(Number(e.target.value))} />{" "}
+        <button onClick={() => send({ type: "command", command: { type: "setSpreads", retail: retailSpread / 100 } })}>Set spread</button>
+      </p>
+      <p>
+        Policy Rate {(bank.policyRate * 100).toFixed(1)}% · Retail Credit {(bank.rates.retail * 100).toFixed(1)}% · Collateralised{" "}
+        {(bank.rates.collateralised * 100).toFixed(1)}%
+      </p>
+      <p>
+        Loans {bank.loans.toLocaleString()} · Deposits created {bank.deposits.toLocaleString()} · Equity {bank.equity.toLocaleString()} ·{" "}
+        {bank.lending ? "Lending" : "Not lending (too little equity)"}
+      </p>
+      {queued.length > 0 && <p>Queued for the next Tick: {queued.map(describe).join(", ")}</p>}
 
       <Industries industries={industries} />
 
