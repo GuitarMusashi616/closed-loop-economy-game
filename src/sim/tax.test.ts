@@ -173,6 +173,42 @@ describe("Equity Stakes", () => {
   });
 });
 
+describe("Equity Stakes in a failed Industry", () => {
+  /** Mining and Energy borrows 100, the Government converts 50 of it to a stake, then its buyers vanish and it fails. */
+  const failing = () => {
+    const world = step(createWorld(42), [...fund(["mining-energy"], 100), { type: "convertLoan", industryId: "mining-energy", amount: 50 }]).world;
+    return {
+      ...world,
+      industries: world.industries.map((i) =>
+        i.id === "mining-energy" ? { ...i, lines: i.lines.map((l) => (l.productId === "ore" ? { ...l, expected: 1000 } : l)) } : i,
+      ),
+    };
+  };
+
+  it("are written off with the Industry Loan: the lender takes the loss and nothing is left on either balance sheet", () => {
+    expect(industry(failing(), "mining-energy").stake).toBe(50);
+    const world = run(failing(), 12);
+    const mining = industry(world, "mining-energy");
+    expect(mining.failed).toBe(true);
+    expect(mining.stake).toBe(0);
+    expect(mining.loanOwed).toBe(0);
+    expect(mining.writtenOff).toBeGreaterThanOrEqual(50);
+    expect(world.ledger.balances["treasury:loansReceivable"]).toBe(0);
+    // The failed Industry no longer carries the Treasury's claim as a liability.
+    const all = industries(world);
+    expect(sectoralBalance(world).industries).toBe(all.reduce((s, i) => s + i.money - i.loanOwed, 0));
+    expect(moneySupply(world) - commercialBank(world).deposits).toBe(100);
+  });
+
+  it("stay gone when the Industry is restarted and after a save", () => {
+    const failed = run(failing(), 12);
+    const again = step(deserialize(serialize(failed)), fund(["mining-energy"], 500)).world;
+    expect(industry(again, "mining-energy")).toMatchObject({ started: true, failed: false, stake: 0 });
+    // No dividend goes to the Treasury for a stake that was written off.
+    expect(fiscal(run(again, 5)).dividendsToTreasury).toBe(0);
+  });
+});
+
 describe("Sectoral Balance", () => {
   it("is zero everywhere in a new world except the Commercial Bank's founding capital", () => {
     const b = sectoralBalance(createWorld(1));

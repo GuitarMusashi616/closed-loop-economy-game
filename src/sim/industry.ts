@@ -183,6 +183,8 @@ export function industryAccounts(industry: Industry) {
     money: `${industry.id}:money`,
     loanOwed: `${industry.id}:loanOwed`,
     equity: `${industry.id}:equity`,
+    /** The Treasury's Equity Stake in the Industry (an asset of the Treasury, so the Industry's liability). */
+    stake: `${industry.id}:stake`,
   };
 }
 
@@ -475,6 +477,17 @@ function fail(industry: Industry, ledger: Ledger, tick: number): { industry: Ind
       ],
     });
   }
+  // The Government's Equity Stake is wiped out too: the lender takes the loss.
+  const stake = balanceOf(ledger, acct.stake);
+  if (stake > 0) {
+    apply({
+      type: "writeOffLoss",
+      entries: [
+        { account: acct.equity, debit: stake },
+        { account: acct.stake, credit: stake },
+      ],
+    });
+  }
   return {
     industry: {
       ...industry,
@@ -484,7 +497,7 @@ function fail(industry: Industry, ledger: Ledger, tick: number): { industry: Ind
       targetHeadcount: 0,
       headcount: 0,
       wagesPaid: 0,
-      writtenOff: industry.writtenOff + lost,
+      writtenOff: industry.writtenOff + lost + stake,
       inputStock: {},
       lines: industry.lines.map((l) => ({ ...l, batches: [], plan: 0 })),
     },
