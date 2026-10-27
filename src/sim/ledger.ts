@@ -26,6 +26,7 @@ export const TRANSACTION_TYPES = {
   wages: { effect: "none", cause: "Wages" },
   ageing: { effect: "none", cause: "Ageing" },
   sale: { effect: "none", cause: "Sale" },
+  industryRepayment: { effect: "none", cause: "Industry Loan repayment" },
   retailLoan: { effect: "create", cause: "Retail Credit" },
   retailRepayment: { effect: "destroy", cause: "Retail Credit repayment" },
   retailInterest: { effect: "none", cause: "Retail Credit interest" },

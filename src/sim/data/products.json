@@ -1,0 +1,16 @@
+[
+  {"id": "grain", "name": "Grain", "tier": "essentials", "maxWtp": 20, "shelfLife": null, "household": true},
+  {"id": "vegetables", "name": "Vegetables", "tier": "essentials", "maxWtp": 24, "shelfLife": 4, "household": true},
+  {"id": "meat", "name": "Meat", "tier": "essentials", "maxWtp": 32, "shelfLife": 3, "household": true},
+  {"id": "dairy", "name": "Dairy", "tier": "essentials", "maxWtp": 26, "shelfLife": 2, "household": true},
+  {"id": "ore", "name": "Ore", "tier": "comforts", "maxWtp": 10, "shelfLife": null},
+  {"id": "power", "name": "Power", "tier": "comforts", "maxWtp": 8, "shelfLife": 1},
+  {"id": "metal", "name": "Metal", "tier": "comforts", "maxWtp": 30, "shelfLife": null},
+  {"id": "tools", "name": "Tools", "tier": "durables", "maxWtp": 60, "shelfLife": null, "capacityPerGood": 10},
+  {"id": "machinery", "name": "Machinery", "tier": "durables", "maxWtp": 110, "shelfLife": null, "capacityPerGood": 25},
+  {"id": "buildings", "name": "Buildings", "tier": "durables", "maxWtp": 90, "shelfLife": null, "capacityPerGood": 20},
+  {"id": "freight", "name": "Freight", "tier": "comforts", "maxWtp": 10, "shelfLife": 1},
+  {"id": "healthcare", "name": "Healthcare", "tier": "essentials", "maxWtp": 20, "shelfLife": 1},
+  {"id": "education", "name": "Education", "tier": "education", "maxWtp": 20, "shelfLife": 1},
+  {"id": "research", "name": "Research", "tier": "education", "maxWtp": 35, "shelfLife": 1}
+]

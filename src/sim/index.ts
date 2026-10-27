@@ -1,6 +1,7 @@
 import { hasWelfareStats, newCohort, runHouseholds, sampleCitizenOf, type Citizen, type Cohort, type CohortView, type CountrySummary } from "./households";
+import { runSupplyWeb } from "./web";
 import { seededRandom } from "./rng";
-import { industryAccounts, newAgriculture, runIndustry, stockOf, type Industry, type IndustryView, type ProductLine } from "./industry";
+import { industryAccounts, newIndustries, runIndustry, startIndustry, stockOf, type Industry, type IndustryView, type ProductLine } from "./industry";
 import { PRODUCTS, driftTastes, neutralTastes, type Tastes, type Tier } from "./products";
 import { BANK_ACCOUNTS, FOUNDING_BALANCES, bankView, newPolicy, runRetailCredit, type BankPolicy, type CommercialBankView } from "./bank";
 import { checkInvariants, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
@@ -73,7 +74,7 @@ export function createWorld(seed: number, options: { waterCoverage?: number } = 
     { id: `${c.id}:equity`, kind: "equity", holder: c.name, isMoney: false },
     { id: `${c.id}:loanOwed`, kind: "liability", holder: c.name, isMoney: false },
   ]);
-  const industries = [newAgriculture()];
+  const industries = newIndustries();
   return {
     seed,
     tick: 0,
@@ -221,6 +222,9 @@ export function deserialize(save: string): World {
   if (!world.markups || !world.tastes || world.industries.some((i) => !Array.isArray(i.lines))) {
     throw new Error("Save predates the Full Product market and cannot be loaded");
   }
+  if (world.industries.some((i) => typeof i.capacity !== "number")) {
+    throw new Error("Save predates the supply web and cannot be loaded");
+  }
   if (!hasWelfareStats(world.cohorts) || typeof world.waterCoverage !== "number") {
     throw new Error("Save predates Welfare Stats and cannot be loaded");
   }
@@ -248,7 +252,7 @@ export function step(world: World, commands: Command[]): { world: World; events:
     ledger = result.ledger;
     if (result.event) events.push(result.event);
     if (command.type === "industryLoan") {
-      started = started.map((i) => (i.id === command.industryId ? { ...i, started: true } : i));
+      started = started.map((i) => (i.id === command.industryId ? startIndustry(i) : i));
     }
   }
   const credit = runRetailCredit(ledger, world.cohorts, started, policy, world.tick);
@@ -256,7 +260,10 @@ export function step(world: World, commands: Command[]): { world: World; events:
   events.push(...credit.events);
   const cohortsNext = credit.cohorts;
   const tastes = driftTastes(world.tastes, world.seed, world.tick);
-  const next = started.map((industry) => {
+  const web = runSupplyWeb(started, ledger, markups, world.tick);
+  ledger = web.ledger;
+  events.push(...web.events);
+  const next = web.industries.map((industry) => {
     const run = runIndustry(industry, ledger, { cohorts: cohortsNext, tastes, markups }, world.tick);
     ledger = run.ledger;
     events.push(...run.events);

@@ -1,4 +1,5 @@
 import { seededRandom } from "./rng";
+import productData from "./data/products.json";
 
 /** Budget tiers, in the order a Household Cohort funds them: essentials first, education last. */
 export type Tier = "essentials" | "comforts" | "durables" | "education";
@@ -18,14 +19,14 @@ export interface ProductDef {
   maxWtp: number;
   /** Ticks after which unsold stock is thrown away, or null for goods that keep. */
   shelfLife: number | null;
+  /** True for Products sold to Household Cohorts; the rest are sold to other Industries. */
+  household?: boolean;
+  /** Capacity one unit adds when an Industry buys it as a capital good. */
+  capacityPerGood?: number;
 }
 
-export const PRODUCTS: ProductDef[] = [
-  { id: "grain", name: "Grain", tier: "essentials", maxWtp: 20, shelfLife: null },
-  { id: "vegetables", name: "Vegetables", tier: "essentials", maxWtp: 24, shelfLife: 4 },
-  { id: "meat", name: "Meat", tier: "essentials", maxWtp: 32, shelfLife: 3 },
-  { id: "dairy", name: "Dairy", tier: "essentials", maxWtp: 26, shelfLife: 2 },
-];
+/** Products are defined in `data/products.json`. */
+export const PRODUCTS = productData as ProductDef[];
 
 export function productDef(id: string): ProductDef {
   const def = PRODUCTS.find((p) => p.id === id);
@@ -41,7 +42,7 @@ export const MAX_TASTE = 1.4;
 const TASTE_DRIFT = 0.1;
 
 export function neutralTastes(cohortIds: string[]): Tastes {
-  return Object.fromEntries(cohortIds.map((id) => [id, Object.fromEntries(PRODUCTS.map((p) => [p.id, 1]))]));
+  return Object.fromEntries(cohortIds.map((id) => [id, Object.fromEntries(PRODUCTS.filter((p) => p.household).map((p) => [p.id, 1]))]));
 }
 
 /** Tastes wander a little each Tick, deterministically from the seed and Tick. */
