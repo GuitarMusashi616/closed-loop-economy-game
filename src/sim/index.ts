@@ -6,6 +6,7 @@ import { industryAccounts, labourDemand, newIndustries, runIndustry, startIndust
 import { PRODUCTS, driftTastes, neutralTastes, type Tastes, type Tier } from "./products";
 import { BANK_ACCOUNTS, FOUNDING_BALANCES, bankView, newPolicy, runRetailCredit, type BankPolicy, type CommercialBankView } from "./bank";
 import { NO_FLOWS, checkRate, payTaxAndDividends, stakeAccount, type FiscalFlows, type TaxRates } from "./tax";
+import { chooseActive, contractDemand, newResearch, researchView, runContract, type ResearchState, type ResearchView } from "./research";
 import { checkInvariants, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
 
 export type { MoneyEvent } from "./ledger";
@@ -14,8 +15,11 @@ export type { IndustryView, ProductLine } from "./industry";
 export type { Tastes, Tier } from "./products";
 export type { BankPolicy, CommercialBankView } from "./bank";
 export type { FiscalFlows, TaxRates } from "./tax";
+export type { ResearchView, TechnologyView, TechnologyStatus, Branch } from "./research";
 
 export type Command =
+  /** Chooses the Technologies to research, up to the number of slots. Replaces the previous choice. */
+  | { type: "setResearch"; technologyIds: string[] }
   | { type: "monetize"; amount: number }
   | { type: "grant"; cohortId: string; amount: number }
   | { type: "industryLoan"; industryId: string; amount: number }
@@ -47,6 +51,8 @@ export interface World {
   taxes: TaxRates;
   /** Taxes and dividends of the latest Tick. */
   flows: FiscalFlows;
+  /** Technologies researched, being researched, and their progress. */
+  research: ResearchState;
   ledger: Ledger;
   log: MoneyEvent[];
 }
@@ -100,6 +106,7 @@ export function createWorld(seed: number, options: { waterCoverage?: number } = 
     markups: {},
     taxes: { income: 0, corporate: 0 },
     flows: NO_FLOWS,
+    research: newResearch(),
     ledger: withFounding(emptyLedger([
       ...ACCOUNTS,
       ...BANK_ACCOUNTS,
@@ -155,6 +162,11 @@ export function sampleCitizen(world: World, cohortId: string, slot: number): Cit
   return sampleCitizenOf(cohort, world.seed, slot);
 }
 
+/** The tech tree with each Technology's progress and status, and how fast the Research Labs are working. */
+export function research(world: World): ResearchView {
+  return researchView(world.research, world.industries);
+}
+
 export function industries(world: World): IndustryView[] {
   return world.industries.map((industry) => {
     const acct = industryAccounts(industry);
@@ -206,7 +218,9 @@ export interface ProductMarketView {
 
 /** Supply and demand for every Product, for inspection. */
 export function productMarkets(world: World): ProductMarketView[] {
-  return PRODUCTS.map((def) => {
+  // Products still locked behind a Technology have no line yet and are not on the market.
+  const made = new Set(world.industries.flatMap((i) => i.lines.map((l) => l.productId)));
+  return PRODUCTS.filter((def) => made.has(def.id)).map((def) => {
     const lines = world.industries.flatMap((i) => i.lines.filter((l): l is ProductLine => l.productId === def.id));
     const sum = (pick: (l: ProductLine) => number) => lines.reduce((s, l) => s + pick(l), 0);
     const sold = sum((l) => l.sold);
@@ -291,6 +305,7 @@ export function deserialize(save: string): World {
     throw new Error("Save predates the labor market and cannot be loaded");
   }
   if (!world.taxes || !world.flows) throw new Error("Save predates taxes and cannot be loaded");
+  if (!world.research) throw new Error("Save predates Research and cannot be loaded");
   if (!hasWelfareStats(world.cohorts) || typeof world.waterCoverage !== "number") {
     throw new Error("Save predates Welfare Stats and cannot be loaded");
   }
@@ -304,6 +319,7 @@ export function step(world: World, commands: Command[]): { world: World; events:
   let policy = world.policy;
   let markups = world.markups;
   let taxes = world.taxes;
+  let researchState = world.research;
   const events: MoneyEvent[] = [];
   const grain: Record<string, number> = {};
   for (const command of commands) {
@@ -316,6 +332,10 @@ export function step(world: World, commands: Command[]): { world: World; events:
         income: command.income === undefined ? taxes.income : checkRate("Income tax", command.income),
         corporate: command.corporate === undefined ? taxes.corporate : checkRate("Corporate tax", command.corporate),
       };
+      continue;
+    }
+    if (command.type === "setResearch") {
+      researchState = chooseActive(researchState, command.technologyIds);
       continue;
     }
     if (command.type === "setMarkup") {
@@ -334,10 +354,14 @@ export function step(world: World, commands: Command[]): { world: World; events:
   events.push(...credit.events);
   const cohortsNext = credit.cohorts;
   const tastes = driftTastes(world.tastes, world.seed, world.tick);
-  const web = runSupplyWeb(started, ledger, markups, world.tick);
+  const web = runSupplyWeb(contractDemand(started, researchState), ledger, markups, world.tick);
   ledger = web.ledger;
   events.push(...web.events);
-  const market = runLabor(web.industries, cohortsNext, world.labor, (i) =>
+  // Industries have had first call on the Research Labs' stock; the Government's contract takes what is left.
+  const contract = runContract(researchState, web.industries, ledger, world.tick);
+  ledger = contract.ledger;
+  researchState = contract.state;
+  const market = runLabor(contract.industries,cohortsNext, world.labor, (i) =>
     labourDemand(i, ledger.balances[industryAccounts(i).money] ?? 0, markups),
   );
   const payroll = cohortsNext.filter(isWorkingAge);
@@ -374,7 +398,7 @@ export function step(world: World, commands: Command[]): { world: World; events:
     ).ledger;
   }
   checkInvariants(ledger);
-  return { world: { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: next, labor: market.labor, policy, tastes, markups, taxes, flows, ledger, log: [...world.log, ...events] }, events };
+  return { world: { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: next, labor: market.labor, policy, tastes, markups, taxes, flows, research: researchState, ledger, log: [...world.log, ...events] }, events };
 }
 
 function applyMarkupCommand(markups: Record<string, number>, command: Extract<Command, { type: "setMarkup" }>): Record<string, number> {
@@ -401,7 +425,7 @@ function applyPolicy(policy: BankPolicy, command: Extract<Command, { type: "setP
   };
 }
 
-function toTransaction(world: World, command: Exclude<Command, { type: "setPolicyRate" | "setSpreads" | "setMarkup" | "setTaxRates" }>): Transaction {
+function toTransaction(world: World, command: Exclude<Command, { type: "setPolicyRate" | "setSpreads" | "setMarkup" | "setTaxRates" | "setResearch" }>): Transaction {
   if (!Number.isSafeInteger(command.amount) || command.amount <= 0) {
     throw new Error(`${command.type} amount must be a positive whole number, got ${command.amount}`);
   }

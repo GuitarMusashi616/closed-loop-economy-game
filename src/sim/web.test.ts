@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createWorld, deserialize, industries, moneySupply, commercialBank, serialize, step, type Command, type World } from "./index";
 import { PRODUCTS } from "./products";
+import technologyData from "./data/technologies.json";
 
 const IDS = ["agriculture", "mining-energy", "manufacturing", "construction", "retail-logistics", "healthcare-education", "research-labs"];
 
@@ -31,7 +32,9 @@ describe("the seven starting Industries", () => {
     expect(PRODUCTS.length).toBeGreaterThanOrEqual(14);
     expect(PRODUCTS.length).toBeLessThanOrEqual(16);
     const made = industries(createWorld(1)).flatMap((i) => i.lines.map((l) => l.productId));
-    expect(new Set(made).size).toBe(PRODUCTS.length);
+    // Products unlocked by Technologies get their lines once researched (see research.test.ts).
+    const locked = new Set(technologyData.flatMap((t) => t.unlocks.products));
+    expect(new Set(made)).toEqual(new Set(PRODUCTS.map((p) => p.id).filter((id) => !locked.has(id))));
     for (const i of industries(createWorld(1))) {
       for (const line of i.lines) {
         expect(line.capacityPerUnit).toBeGreaterThan(0);

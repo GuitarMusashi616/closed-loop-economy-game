@@ -1,5 +1,6 @@
 import { seededRandom } from "./rng";
 import productData from "./data/products.json";
+import technologyData from "./data/technologies.json";
 
 /** Budget tiers, in the order a Household Cohort funds them: essentials first, education last. */
 export type Tier = "essentials" | "comforts" | "durables" | "education";
@@ -42,7 +43,10 @@ export const MAX_TASTE = 1.4;
 const TASTE_DRIFT = 0.1;
 
 export function neutralTastes(cohortIds: string[]): Tastes {
-  return Object.fromEntries(cohortIds.map((id) => [id, Object.fromEntries(PRODUCTS.filter((p) => p.household).map((p) => [p.id, 1]))]));
+  // Products a Technology unlocks later have no taste to drift yet and read as neutral until they do.
+  const locked = new Set(technologyData.flatMap((t) => t.unlocks.products));
+  const starting = PRODUCTS.filter((p) => p.household && !locked.has(p.id));
+  return Object.fromEntries(cohortIds.map((id) => [id, Object.fromEntries(starting.map((p) => [p.id, 1]))]));
 }
 
 /** Tastes wander a little each Tick, deterministically from the seed and Tick. */

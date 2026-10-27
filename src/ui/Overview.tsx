@@ -3,6 +3,7 @@ import type { Command } from "../sim";
 import { Citizens } from "./Citizens";
 import { Industries } from "./Industries";
 import { Products } from "./Products";
+import { Research } from "./Research";
 import type { Citizen } from "../sim";
 import type { FromWorker, Snapshot, Speed, ToWorker } from "./protocol";
 
@@ -23,6 +24,8 @@ function describe(c: Command): string {
       return `${c.target} markup ${c.percent}%`;
     case "setTaxRates":
       return `tax rates (income ${c.income ?? "-"}%, corporate ${c.corporate ?? "-"}%)`;
+    case "setResearch":
+      return `research ${c.technologyIds.join(", ") || "none"}`;
     default:
       return `${c.type} ${c.amount}`;
   }
@@ -184,6 +187,7 @@ export function Overview() {
       {queued.length > 0 && <p>Queued for the next Tick: {queued.map(describe).join(", ")}</p>}
 
       <Industries industries={industries} />
+      <Research research={snapshot.research} onChoose={(technologyIds) => send({ type: "command", command: { type: "setResearch", technologyIds } })} />
       <Products
         products={products}
         wageMarkup={wageMarkup}
