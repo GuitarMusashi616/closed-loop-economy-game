@@ -19,7 +19,7 @@ export function Citizens({
       <p>
         Country: {summary.population.toLocaleString()} citizens · health {fmt(summary.health)} · hunger {fmt(summary.hunger)} · thirst{" "}
         {fmt(summary.thirst)} · homelessness {(summary.homelessness * 100).toFixed(1)}% · education {fmt(summary.education)} · wealth{" "}
-        {fmt(summary.wealth)} · {summary.deaths.toLocaleString()} died · {summary.emigrated.toLocaleString()} emigrated
+        {fmt(summary.wealth)} · {summary.deaths.toLocaleString()} died · {summary.emigrated.toLocaleString()} emigrated · {summary.immigrated.toLocaleString()} immigrated
       </p>
       <table>
         <thead>

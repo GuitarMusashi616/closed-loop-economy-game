@@ -158,7 +158,7 @@ describe("population", () => {
     const start = createWorld(7);
     const world = run(start, 20);
     const total = (w: World) => cohortViews(w).reduce((s, c) => s + c.population, 0);
-    const flows = cohortViews(world).reduce((s, c) => s + c.births - c.deaths - c.emigrated, 0);
+    const flows = cohortViews(world).reduce((s, c) => s + c.births + c.immigrated - c.deaths - c.emigrated, 0);
     expect(total(world)).toBe(total(start) + flows);
     expect(view(world, WORKERS).population + view(world, "cohort-1").population).not.toBe(
       view(start, WORKERS).population + view(start, "cohort-1").population + flows,

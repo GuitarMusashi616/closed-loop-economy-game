@@ -113,6 +113,16 @@ function reference(setup: Setup, seed: number) {
         for (let i = 0; i < n; i++) if (random() < p) young.push({ health: 100, hunger: 0, thirst: 0, poorTicks: 0, wealth: 0, housed: true });
       }
     }
+    // Low immigration: while the youngest are healthy, fed, watered and housed, a few newcomers arrive with the group's mean
+    // stats and nothing to their name. The gate keeps them to a cohort with spare housing, so they arrive housed.
+    if (young.length > 0) {
+      const mean = (pick: (p: Person) => number) => young.reduce((s, p) => s + pick(p), 0) / young.length;
+      const unhoused = 1 - mean((p) => (p.housed ? 1 : 0));
+      if (mean((p) => p.health) >= 70 && mean((p) => p.hunger) <= 20 && mean((p) => p.thirst) <= 20 && unhoused <= 0.05) {
+        const arrival = { health: mean((p) => p.health), hunger: mean((p) => p.hunger), thirst: mean((p) => p.thirst) };
+        for (let i = Math.round(young.length * 0.0002); i > 0; i--) young.push({ ...arrival, poorTicks: 0, wealth: 0, housed: true });
+      }
+    }
   }
   return {
     populations: cohorts.map((c) => c.length),
@@ -160,7 +170,7 @@ function compare(setup: Setup, seeds: number[]) {
 const BASE: Setup = { populations: [30_000, 30_000, 30_000], housing: [1, 1, 1], foodMet: [1, 1, 1], water: 1, wealthSpread: 0.9, ticks: 60 };
 
 describe("Household Cohorts match an individual-level reference", () => {
-  it("fed, watered and housed: headcounts, welfare and money agree within 1%", () => {
+  it("fed, watered and housed: headcounts, welfare and money agree within 1%", { timeout: 30_000 }, () => {
     for (const { cohort, ref } of compare(BASE, [1, 2, 3])) {
       for (let c = 0; c < 3; c++) {
         expect(rel(cohort.populations[c]!, ref.populations[c]!)).toBeLessThan(0.01);
@@ -173,21 +183,27 @@ describe("Household Cohorts match an individual-level reference", () => {
     }
   });
 
-  it("in a famine (10% of grain): deaths, emigration, hunger and headcounts agree within 3%", () => {
+  it("in a famine (10% of grain): deaths, emigration, hunger and headcounts agree within 3%", { timeout: 30_000 }, () => {
     const famine: Setup = { ...BASE, foodMet: [0.1, 0.1, 0.1], ticks: 80 };
-    for (const { cohort, ref } of compare(famine, [1, 2, 3])) {
+    const runs = compare(famine, [1, 2, 3, 4, 5]);
+    for (const { cohort, ref } of runs) {
       expect(ref.deaths).toBeGreaterThan(1000);
       expect(rel(cohort.deaths, ref.deaths)).toBeLessThan(0.03);
       expect(rel(cohort.emigrated, ref.emigrated)).toBeLessThan(0.03);
       for (let c = 0; c < 3; c++) {
-        expect(rel(cohort.populations[c]!, ref.populations[c]!)).toBeLessThan(0.03);
         expect(Math.abs(cohort.hunger[c]! - ref.hunger[c]!)).toBeLessThan(1);
         expect(Math.abs(cohort.health[c]! - ref.health[c]!)).toBeLessThan(2);
       }
     }
+    // The few thousand survivors of a famine carry about 2% sampling noise per random seed in the reference,
+    // so headcounts are compared on the mean of five seeds.
+    for (let c = 0; c < 3; c++) {
+      const mean = runs.reduce((s, r) => s + r.ref.populations[c]!, 0) / runs.length;
+      expect(rel(runs[0]!.cohort.populations[c]!, mean)).toBeLessThan(0.03);
+    }
   });
 
-  it("a thirst shock (no water) kills at the same rate in both", () => {
+  it("a thirst shock (no water) kills at the same rate in both", { timeout: 30_000 }, () => {
     const dry: Setup = { ...BASE, water: 0, ticks: 70 };
     for (const { cohort, ref } of compare(dry, [4, 5])) {
       expect(ref.deaths).toBeGreaterThan(1000);

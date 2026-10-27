@@ -28,6 +28,41 @@ const fed = () =>
     { type: "grant", cohortId: "cohort-2", amount: 300_000 },
   ]);
 
+describe("immigration", () => {
+  it("brings a few newcomers a Tick into the youngest cohort when welfare is decent", () => {
+    const start = fed();
+    const world = run(start, 20);
+    const young = view(world, "cohort-0");
+    expect(young.immigrated).toBeGreaterThan(0);
+    expect(countrySummary(world).immigrated).toBe(young.immigrated);
+    // Low immigration: well under a percent of the cohort over those Ticks.
+    expect(young.immigrated).toBeLessThan(view(start, "cohort-0").population * 0.01);
+    expect(view(world, "cohort-1").immigrated).toBe(0);
+  });
+
+  it("stops when the cohort is hungry, thirsty or unhoused", () => {
+    const base = fed();
+    const arrivals = (change: object) => {
+      const w = { ...base, cohorts: base.cohorts.map((c) => (c.id === "cohort-0" ? { ...c, ...change } : c)) };
+      return view(run(w, 1), "cohort-0").immigrated - view(base, "cohort-0").immigrated;
+    };
+    expect(arrivals({})).toBeGreaterThan(0);
+    expect(arrivals({ hunger: 60 })).toBe(0);
+    expect(arrivals({ thirst: 60 })).toBe(0);
+    expect(arrivals({ health: 40 })).toBe(0);
+    expect(arrivals({ houses: 1 })).toBe(0);
+  });
+
+  it("is deterministic and accounted for: the population changes by births + immigrants - deaths - emigrants", () => {
+    const start = fed();
+    const a = run(start, 30);
+    const b = run(start, 30);
+    expect(a.cohorts).toEqual(b.cohorts);
+    const net = (w: World) => cohortViews(w).reduce((s, c) => s + c.births + c.immigrated - c.deaths - c.emigrated, 0);
+    expect(population(a) - population(start)).toBe(net(a) - net(start));
+  });
+});
+
 describe("Household Cohorts and Welfare Stats", () => {
   it("starts healthy with every Welfare Stat reported per cohort", () => {
     const c = view(createWorld(42), "cohort-0");

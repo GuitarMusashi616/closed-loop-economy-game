@@ -33,6 +33,8 @@ export interface Cohort {
   securedMissed: number;
   /** Lifetime births. */
   births: number;
+  /** Lifetime immigrants, who only ever arrive in the youngest cohort. Absent in older saves. */
+  immigrated: number;
 }
 
 export interface CohortView extends Cohort {
@@ -62,6 +64,7 @@ export interface CountrySummary {
   wealth: number;
   deaths: number;
   emigrated: number;
+  immigrated: number;
 }
 
 /** Units of grain a cohort wants per day, per head. */
@@ -80,6 +83,12 @@ const EMIGRATION_AFTER = 7;
 const EMIGRATION_RATE = 0.01;
 const AGING_RATE = 0.0005;
 const BIRTH_RATE = 0.0003;
+/** Share of the youngest cohort that arrives from abroad each Tick while welfare there is decent: low immigration. */
+const IMMIGRATION_RATE = 0.0002;
+/** Newcomers only come to a cohort that is healthy, fed, watered and housed at least this well. */
+const IMMIGRATION_MIN_HEALTH = 70;
+const IMMIGRATION_MAX_NEED = 20;
+const IMMIGRATION_MAX_HOMELESSNESS = 0.05;
 /** Health lost per Tick by a cohort whose citizens are all unhoused. */
 const EXPOSURE_DAMAGE = 2;
 
@@ -93,7 +102,7 @@ export function newCohort(id: string, name: string, ageBand: AgeBand, population
     id, name, ageBand, population,
     health: 90, hunger: 0, thirst: 0, homelessness: 0, education,
     poorTicks: 0, deaths: 0, emigrated: 0, missedPayments: 0, students: 0,
-    houses: 0, cars: 0, securedMissed: 0, births: 0,
+    houses: 0, cars: 0, securedMissed: 0, births: 0, immigrated: 0,
   };
 }
 
@@ -187,6 +196,12 @@ export function runHouseholds(
       ? Math.round(young.population * BIRTH_RATE * (1 - young.homelessness) * foodSecurity(young.hunger))
       : 0;
   if (young && births > 0) next[0] = { ...admit(young, births, { health: 100, hunger: 0, thirst: 0, homelessness: 0, education: 0 }), births: young.births + births };
+  // Low immigration: where welfare is decent a few newcomers arrive, with the cohort's own stats, so the mix is unchanged.
+  const arrivals = next[0];
+  if (arrivals && arrivals.health >= IMMIGRATION_MIN_HEALTH && arrivals.hunger <= IMMIGRATION_MAX_NEED && arrivals.thirst <= IMMIGRATION_MAX_NEED && homelessShare(arrivals.houses, arrivals.population) <= IMMIGRATION_MAX_HOMELESSNESS) {
+    const immigrants = Math.round(arrivals.population * IMMIGRATION_RATE);
+    if (immigrants > 0) next[0] = { ...admit(arrivals, immigrants, arrivals), immigrated: (arrivals.immigrated ?? 0) + immigrants };
+  }
   // Housing is fixed by the houses owned, so homelessness follows population.
   next = next.map((c) => ({ ...c, homelessness: homelessShare(c.houses, c.population) }));
   for (let i = 0; i < before.length - 1; i++) {

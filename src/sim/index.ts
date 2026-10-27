@@ -228,6 +228,7 @@ export function countrySummary(world: World): CountrySummary {
     wealth: mean((c) => c.wealth),
     deaths: views.reduce((s, c) => s + c.deaths, 0),
     emigrated: views.reduce((s, c) => s + c.emigrated, 0),
+    immigrated: views.reduce((s, c) => s + (c.immigrated ?? 0), 0),
   };
 }
 
