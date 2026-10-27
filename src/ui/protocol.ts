@@ -1,4 +1,4 @@
-import type { FiscalFlows, SectoralBalanceView, TaxRates, Citizen, CommercialBankView, Cohort, CohortView, Command, CountrySummary, IndustryView, MoneyEvent, ProductMarketView } from "../sim";
+import type { Explanation, MoneyFlowView, TickStats, FiscalFlows, SectoralBalanceView, TaxRates, Citizen, CommercialBankView, Cohort, CohortView, Command, CountrySummary, IndustryView, MoneyEvent, ProductMarketView } from "../sim";
 
 export type Speed = 0 | 1 | 2 | 4;
 
@@ -7,6 +7,8 @@ export type ToWorker =
   | { type: "step" }
   | { type: "zoom"; cohortId: string }
   | { type: "setSpeed"; speed: Speed }
+  /** Length in Ticks of the period the Sankey covers, or 0 for all time. */
+  | { type: "setFlowWindow"; ticks: number }
   | { type: "save" }
   | { type: "load"; save: string };
 
@@ -27,6 +29,10 @@ export interface Snapshot {
   queued: Command[];
   fiscal: FiscalFlows & { rates: TaxRates };
   sectoral: SectoralBalanceView;
+  flowWindow: number;
+  flows: MoneyFlowView;
+  history: TickStats[];
+  notes: Explanation[];
 }
 
 export type FromWorker =

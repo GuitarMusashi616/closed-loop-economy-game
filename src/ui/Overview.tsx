@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Command } from "../sim";
 import { Citizens } from "./Citizens";
+import { Flows } from "./Flows";
 import { Industries } from "./Industries";
 import { Products } from "./Products";
 import type { Citizen } from "../sim";
@@ -84,7 +85,7 @@ export function Overview() {
   };
 
   if (!snapshot) return <p>Loading…</p>;
-  const { tick, seed, speed, moneySupply, holders, log, cohorts, households, summary, industries, products, wageMarkup, bank, queued, fiscal, sectoral } = snapshot;
+  const { tick, seed, speed, moneySupply, holders, log, cohorts, households, summary, industries, products, wageMarkup, bank, queued, fiscal, sectoral, flows, flowWindow, history, notes } = snapshot;
 
   return (
     <main style={{ fontFamily: "system-ui", maxWidth: 800, margin: "2rem auto", padding: "0 1rem" }}>
@@ -190,6 +191,15 @@ export function Overview() {
         {bank.lending ? "Lending" : "Not lending (too little equity)"}
       </p>
       {queued.length > 0 && <p>Queued for the next Tick: {queued.map(describe).join(", ")}</p>}
+
+      <Flows
+        flows={flows}
+        window={flowWindow}
+        onWindow={(ticks) => send({ type: "setFlowWindow", ticks })}
+        history={history}
+        notes={notes}
+        productNames={Object.fromEntries(products.map((p) => [p.id, p.name]))}
+      />
 
       <Industries industries={industries} />
       <Products
