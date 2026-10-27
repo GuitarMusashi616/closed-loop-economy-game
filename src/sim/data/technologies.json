@@ -1,21 +1,21 @@
 [
   {"id": "orchards", "name": "Orchards", "branch": "food", "cost": 40, "requires": [], "unlocks": {"products": ["fruit"], "industries": []}},
   {"id": "fisheries", "name": "Fisheries", "branch": "food", "cost": 80, "requires": ["orchards"], "unlocks": {"products": ["fish"], "industries": []}},
-  {"id": "irrigation", "name": "Irrigation", "branch": "food", "cost": 120, "requires": ["orchards"], "unlocks": {"products": [], "industries": []}},
+  {"id": "irrigation", "name": "Irrigation", "branch": "food", "cost": 120, "requires": ["orchards"], "unlocks": {"products": [], "industries": []}, "bonus": {"yield": {"agriculture": 0.2}}},
   {"id": "cold-chain", "name": "Cold Chain", "branch": "food", "cost": 200, "requires": ["fisheries"], "unlocks": {"products": [], "industries": []}},
-  {"id": "selective-breeding", "name": "Selective Breeding", "branch": "food", "cost": 300, "requires": ["irrigation", "cold-chain"], "unlocks": {"products": [], "industries": []}},
+  {"id": "selective-breeding", "name": "Selective Breeding", "branch": "food", "cost": 300, "requires": ["irrigation", "cold-chain"], "unlocks": {"products": [], "industries": []}, "bonus": {"yield": {"agriculture": 0.3}}},
 
   {"id": "prospecting", "name": "Prospecting", "branch": "materials-energy", "cost": 50, "requires": [], "unlocks": {"products": [], "industries": []}},
   {"id": "smelting", "name": "Smelting", "branch": "materials-energy", "cost": 90, "requires": ["prospecting"], "unlocks": {"products": [], "industries": []}},
   {"id": "power-grids", "name": "Power Grids", "branch": "materials-energy", "cost": 120, "requires": ["prospecting"], "unlocks": {"products": [], "industries": []}},
-  {"id": "deep-mining", "name": "Deep Mining", "branch": "materials-energy", "cost": 200, "requires": ["smelting"], "unlocks": {"products": [], "industries": []}},
+  {"id": "deep-mining", "name": "Deep Mining", "branch": "materials-energy", "cost": 200, "requires": ["smelting"], "unlocks": {"products": [], "industries": []}, "bonus": {"yield": {"mining-energy": 0.2}}},
   {"id": "advanced-energy", "name": "Advanced Energy", "branch": "materials-energy", "cost": 320, "requires": ["power-grids", "deep-mining"], "unlocks": {"products": [], "industries": ["advanced-energy"]}},
 
   {"id": "workshops", "name": "Workshops", "branch": "industry", "cost": 60, "requires": [], "unlocks": {"products": [], "industries": []}},
   {"id": "mass-production", "name": "Mass Production", "branch": "industry", "cost": 120, "requires": ["workshops"], "unlocks": {"products": [], "industries": ["consumer-goods"]}},
   {"id": "logistics-networks", "name": "Logistics Networks", "branch": "industry", "cost": 120, "requires": ["workshops"], "unlocks": {"products": [], "industries": []}},
   {"id": "automation", "name": "Automation", "branch": "industry", "cost": 220, "requires": ["mass-production", "logistics-networks"], "unlocks": {"products": [], "industries": ["electronics"]}},
-  {"id": "precision-engineering", "name": "Precision Engineering", "branch": "industry", "cost": 320, "requires": ["automation"], "unlocks": {"products": [], "industries": []}},
+  {"id": "precision-engineering", "name": "Precision Engineering", "branch": "industry", "cost": 320, "requires": ["automation"], "unlocks": {"products": [], "industries": []}, "bonus": {"yield": {"manufacturing": 0.2}}},
 
   {"id": "public-administration", "name": "Public Administration", "branch": "society", "cost": 60, "requires": [], "unlocks": {"products": [], "industries": []}, "bonus": {"slots": 1}},
   {"id": "schooling", "name": "Schooling", "branch": "society", "cost": 100, "requires": ["public-administration"], "unlocks": {"products": [], "industries": []}},

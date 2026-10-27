@@ -12,8 +12,8 @@ export interface TechnologyDef {
   cost: number;
   requires: string[];
   unlocks: { products: string[]; industries: string[] };
-  /** Bonus on completion: extra active Research slots. */
-  bonus?: { slots?: number };
+  /** Bonus on completion: extra active Research slots, and a share (0.2 is +20%) added to the output per worker of the named Industries. */
+  bonus?: { slots?: number; yield?: Record<string, number> };
 }
 
 /** The tech tree is defined in `data/technologies.json`. */
@@ -47,6 +47,14 @@ export function technologyDef(id: string): TechnologyDef {
 }
 
 export const slotsOf = (done: string[]) => BASE_SLOTS + done.reduce((s, id) => s + (technologyDef(id).bonus?.slots ?? 0), 0);
+
+/** The extra output per worker, as a fraction, that the researched Technologies give an Industry. */
+export const yieldBonusOf = (done: string[], industryId: string) =>
+  done.reduce((s, id) => s + (technologyDef(id).bonus?.yield?.[industryId] ?? 0), 0);
+
+/** Sets every Industry's yield bonus from the Technologies researched so far. */
+export const applyYieldBonuses = (industries: Industry[], done: string[]): Industry[] =>
+  industries.map((i) => ({ ...i, yieldBonus: yieldBonusOf(done, i.id) }));
 
 /** Chooses the active Technologies, replacing the previous choice. Progress already made is kept. */
 export function chooseActive(state: ResearchState, ids: string[]): ResearchState {

@@ -45,7 +45,7 @@ export function Research({ research, onChoose }: { research: ResearchView; onCho
                       {Math.floor(t.progress)} / {t.cost}
                     </td>
                     <td>
-                      {[...t.unlocks.products, ...t.unlocks.industries, ...(t.bonus?.slots ? [`${t.bonus.slots} Research slot`] : [])].join(", ") || "-"}
+                      {[...t.unlocks.products, ...t.unlocks.industries, ...(t.bonus?.slots ? [`${t.bonus.slots} Research slot`] : []), ...Object.entries(t.bonus?.yield ?? {}).map(([industry, share]) => `+${Math.round(share * 100)}% ${industry} output`)].join(", ") || "-"}
                     </td>
                     <td>{t.status}</td>
                     <td>

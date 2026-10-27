@@ -187,3 +187,37 @@ describe("Research", () => {
     expect(research(step(loaded, []).world)).toEqual(research(step(world, []).world));
   });
 });
+
+describe("yield Technologies", () => {
+  const agriculture = (world: World) => industries(world).find((i) => i.id === "agriculture")!;
+  const grain = (world: World) => agriculture(world).lines.find((l) => l.productId === "grain")!;
+
+  it("raise Agriculture's output once researched: the same economy makes more grain", () => {
+    const base = run(economy(), 5);
+    const learned: World = { ...base, research: { ...base.research, done: ["orchards", "irrigation"] } };
+    const plain = step(base, []).world;
+    const better = step(learned, []).world;
+    expect(agriculture(plain).yieldBonus).toBe(0);
+    expect(agriculture(better).yieldBonus).toBeGreaterThan(0);
+    expect(grain(better).produced).toBeGreaterThan(grain(plain).produced);
+    // Only the Industries the Technology names benefit.
+    expect(industries(better).find((i) => i.id === "mining-energy")!.yieldBonus).toBe(0);
+  });
+
+  it("take effect when the contract completes them, and stack", () => {
+    let world = until(run(economy(), 1, [choose("orchards")]), "orchards");
+    world = until(step(world, [choose("irrigation")]).world, "irrigation");
+    world = step(world, []).world;
+    const irrigation = agriculture(world).yieldBonus;
+    expect(irrigation).toBeGreaterThan(0);
+    const done = [...world.research.done, "fisheries", "cold-chain", "selective-breeding"];
+    const stacked = step({ ...world, research: { ...world.research, done } }, []).world;
+    expect(agriculture(stacked).yieldBonus).toBeGreaterThan(irrigation);
+  });
+
+  it("survive a save", () => {
+    const base = run(economy(), 3);
+    const learned: World = { ...base, research: { ...base.research, done: ["orchards", "irrigation"] } };
+    expect(agriculture(step(deserialize(serialize(learned)), []).world).yieldBonus).toBe(agriculture(step(learned, []).world).yieldBonus);
+  });
+});

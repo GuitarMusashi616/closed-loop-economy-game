@@ -7,7 +7,7 @@ import { industryAccounts, labourDemand, newIndustries, runIndustry, startIndust
 import { PRODUCTS, driftTastes, neutralTastes, type Tastes, type Tier } from "./products";
 import { BANK_ACCOUNTS, FOUNDING_BALANCES, bankView, newPolicy, runRetailCredit, type BankPolicy, type CommercialBankView } from "./bank";
 import { NO_FLOWS, checkRate, payTaxAndDividends, stakeAccount, type FiscalFlows, type TaxRates } from "./tax";
-import { chooseActive, contractDemand, newResearch, researchView, runContract, type ResearchState, type ResearchView } from "./research";
+import { applyYieldBonuses, chooseActive, contractDemand, newResearch, researchView, runContract, type ResearchState, type ResearchView } from "./research";
 import { nextEpisode, type DeflationEpisode, debtAccounts, debtBurdens as computeBurdens, governmentDebt as computeDebt, issueDebt, priceIndex as computePriceIndex, retireDebt, type DebtBurdensView, type GovernmentDebtView } from "./debt";
 import { CAR_PER, HOUSE_SHELTERS, REPOSSESSED, REPOSSESSED_ACCOUNT, cohortHousingAccounts, durablesView, foundingDurables, homelessShare, runHousing, runPensions, type DurablesView } from "./housing";
 import { alertsFor, assertUnlocked, stagesAt, tutorialFor, type Alert, type LeverStages, type TutorialStep } from "./guide";
@@ -583,6 +583,7 @@ export function step(world: World, commands: Command[]): { world: World; events:
       started = started.map((i) => (i.id === command.industryId ? startIndustry(i) : i));
     }
   }
+  started = applyYieldBonuses(started, researchState.done);
   const pensions = runPensions(ledger, world.cohorts, pensionRate, world.tick);
   ledger = pensions.ledger;
   const housing = runHousing(ledger, world.cohorts, started, policy, world.tick);
