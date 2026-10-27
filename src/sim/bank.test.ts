@@ -103,11 +103,25 @@ describe("a default", () => {
 
 describe("a bank with too little equity", () => {
   it("stops lending", () => {
-    const world = run(started(), 1500);
-    const loans = retailEvents(world).filter((e) => e.direction === "created");
-    expect(loans.length).toBeGreaterThan(0);
-    expect(Math.max(...loans.map((e) => e.tick))).toBeLessThan(world.tick - 100);
+    // A bank wiped out by losses, built by editing the founding capital in a save.
+    const save = JSON.parse(serialize(createWorld(42)));
+    save.ledger.balances["bank:capital"] = 0;
+    save.ledger.balances["bank:equity"] = 0;
+    const world = run(
+      step(deserialize(JSON.stringify(save)), [
+        { type: "monetize", amount: 2000 },
+        { type: "industryLoan", industryId: "agriculture", amount: 1000 },
+      ]).world,
+      20,
+    );
     expect(commercialBank(world).lending).toBe(false);
+    expect(retailEvents(world)).toEqual([]);
+  });
+
+  it("lends again only up to what its equity supports", () => {
+    const bank = commercialBank(run(started(), 5));
+    expect(bank.loans).toBeLessThanOrEqual(bank.equity * 10);
+    expect(bank.lending).toBe(true);
   });
 });
 

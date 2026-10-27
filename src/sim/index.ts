@@ -1,3 +1,4 @@
+import { hasWelfareStats, newCohort, runHouseholds, sampleCitizenOf, type Citizen, type Cohort, type CohortView, type CountrySummary } from "./households";
 import { seededRandom } from "./rng";
 import { industryAccounts, newAgriculture, runIndustry, type Industry, type IndustryView } from "./industry";
 import { BANK_ACCOUNTS, FOUNDING_BALANCES, bankView, newPolicy, runRetailCredit, type BankPolicy, type CommercialBankView } from "./bank";
@@ -15,18 +16,14 @@ export type Command =
   | { type: "setPolicyRate"; rate: number }
   | { type: "setSpreads"; retail?: number; collateralised?: number };
 
-export interface Cohort {
-  id: string;
-  name: string;
-  population: number;
-  /** Consecutive Ticks the cohort has missed a Retail Credit payment. */
-  missedPayments: number;
-}
+export type { AgeBand, Citizen, Cohort, CohortView, CountrySummary } from "./households";
 
 export interface World {
   seed: number;
   tick: number;
   cohorts: Cohort[];
+  /** Share of every cohort's water need that the public supply meets, 0 to 1. */
+  waterCoverage: number;
   industries: Industry[];
   policy: BankPolicy;
   ledger: Ledger;
@@ -52,16 +49,17 @@ function accountsFor(industry: Industry): Account[] {
   ];
 }
 
-const COHORT_NAMES = ["Young Workers", "Established Families", "Retirees"];
+const COHORTS = [
+  { name: "Young Workers", ageBand: "young", education: 40 },
+  { name: "Established Families", ageBand: "established", education: 60 },
+  { name: "Retirees", ageBand: "retired", education: 50 },
+] as const;
 
-export function createWorld(seed: number): World {
+export function createWorld(seed: number, options: { waterCoverage?: number } = {}): World {
   const random = seededRandom(seed);
-  const cohorts = COHORT_NAMES.map((name, i) => ({
-    id: `cohort-${i}`,
-    name,
-    population: 20000 + Math.floor(random() * 20000),
-    missedPayments: 0,
-  }));
+  const cohorts = COHORTS.map((c, i) =>
+    newCohort(`cohort-${i}`, c.name, c.ageBand, 20000 + Math.floor(random() * 20000), c.education),
+  );
   const cohortAccounts = cohorts.flatMap((c): Account[] => [
     { id: `${c.id}:money`, kind: "asset", holder: c.name, isMoney: true },
     { id: `${c.id}:equity`, kind: "equity", holder: c.name, isMoney: false },
@@ -72,6 +70,7 @@ export function createWorld(seed: number): World {
     seed,
     tick: 0,
     cohorts,
+    waterCoverage: options.waterCoverage ?? 1,
     industries,
     policy: newPolicy(),
     ledger: withFounding(emptyLedger([
@@ -95,6 +94,38 @@ export function commercialBank(world: World): CommercialBankView {
 
 export function cohorts(world: World): Cohort[] {
   return world.cohorts;
+}
+
+export function cohortViews(world: World): CohortView[] {
+  return world.cohorts.map((c) => {
+    const money = world.ledger.balances[`${c.id}:money`] ?? 0;
+    return { ...c, money, wealth: c.population > 0 ? money / c.population : 0 };
+  });
+}
+
+export function countrySummary(world: World): CountrySummary {
+  const views = cohortViews(world);
+  const population = views.reduce((s, c) => s + c.population, 0);
+  const mean = (pick: (c: CohortView) => number) =>
+    population === 0 ? 0 : views.reduce((s, c) => s + pick(c) * c.population, 0) / population;
+  return {
+    population,
+    health: mean((c) => c.health),
+    hunger: mean((c) => c.hunger),
+    thirst: mean((c) => c.thirst),
+    homelessness: mean((c) => c.homelessness),
+    education: mean((c) => c.education),
+    wealth: mean((c) => c.wealth),
+    deaths: views.reduce((s, c) => s + c.deaths, 0),
+    emigrated: views.reduce((s, c) => s + c.emigrated, 0),
+  };
+}
+
+/** The Citizen at `slot` in a cohort, chosen deterministically and consistent with the cohort's totals. */
+export function sampleCitizen(world: World, cohortId: string, slot: number): Citizen {
+  const cohort = cohortViews(world).find((c) => c.id === cohortId);
+  if (!cohort) throw new Error(`Unknown Household Cohort ${cohortId}`);
+  return sampleCitizenOf(cohort, world.seed, slot);
 }
 
 export function industries(world: World): IndustryView[] {
@@ -135,6 +166,9 @@ export function deserialize(save: string): World {
   const world = JSON.parse(save) as World;
   if (!Array.isArray(world.industries)) throw new Error("Save predates Industries and cannot be loaded");
   if (!world.policy) throw new Error("Save predates the Commercial Bank and cannot be loaded");
+  if (!hasWelfareStats(world.cohorts) || typeof world.waterCoverage !== "number") {
+    throw new Error("Save predates Welfare Stats and cannot be loaded");
+  }
   checkInvariants(world.ledger);
   return world;
 }
@@ -144,6 +178,7 @@ export function step(world: World, commands: Command[]): { world: World; events:
   let started = world.industries;
   let policy = world.policy;
   const events: MoneyEvent[] = [];
+  const grain: Record<string, number> = {};
   for (const command of commands) {
     if (command.type === "setPolicyRate" || command.type === "setSpreads") {
       policy = applyPolicy(policy, command);
@@ -164,10 +199,27 @@ export function step(world: World, commands: Command[]): { world: World; events:
     const run = runIndustry(industry, ledger, cohortsNext, world.tick);
     ledger = run.ledger;
     events.push(...run.events);
+    for (const [id, units] of Object.entries(run.fills)) grain[id] = (grain[id] ?? 0) + units;
     return run.industry;
   });
+  const households = runHouseholds(cohortsNext, grain, world.waterCoverage, (id) => ledger.balances[`${id}:money`] ?? 0);
+  for (const t of households.transfers) {
+    ledger = post(
+      ledger,
+      {
+        type: "ageing",
+        entries: [
+          { account: `${t.from}:equity`, debit: t.amount },
+          { account: `${t.from}:money`, credit: t.amount },
+          { account: `${t.to}:money`, debit: t.amount },
+          { account: `${t.to}:equity`, credit: t.amount },
+        ],
+      },
+      world.tick,
+    ).ledger;
+  }
   checkInvariants(ledger);
-  return { world: { ...world, tick: world.tick + 1, cohorts: cohortsNext, industries: next, policy, ledger, log: [...world.log, ...events] }, events };
+  return { world: { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: next, policy, ledger, log: [...world.log, ...events] }, events };
 }
 
 function applyPolicy(policy: BankPolicy, command: Extract<Command, { type: "setPolicyRate" | "setSpreads" }>): BankPolicy {

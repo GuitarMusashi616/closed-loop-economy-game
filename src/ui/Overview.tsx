@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Command } from "../sim";
+import { Citizens } from "./Citizens";
 import { Industries } from "./Industries";
+import type { Citizen } from "../sim";
 import type { FromWorker, Snapshot, Speed, ToWorker } from "./protocol";
 
 const SPEEDS: { label: string; speed: Speed }[] = [
@@ -25,6 +27,7 @@ export function Overview() {
   const worker = useRef<Worker | undefined>(undefined);
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [error, setError] = useState<string>();
+  const [citizen, setCitizen] = useState<Citizen>();
   const [monetizeAmount, setMonetizeAmount] = useState(1000);
   const [grantAmount, setGrantAmount] = useState(100);
   const [loanAmount, setLoanAmount] = useState(1000);
@@ -38,6 +41,8 @@ export function Overview() {
       const message = event.data;
       if (message.type === "snapshot") {
         setSnapshot(message.snapshot);
+      } else if (message.type === "citizen") {
+        setCitizen(message.citizen);
       } else if (message.type === "saved") {
         try {
           localStorage.setItem("closed-loop-economy-save", message.save);
@@ -68,7 +73,7 @@ export function Overview() {
   };
 
   if (!snapshot) return <p>Loading…</p>;
-  const { tick, seed, speed, moneySupply, holders, log, cohorts, industries, bank, queued } = snapshot;
+  const { tick, seed, speed, moneySupply, holders, log, cohorts, households, summary, industries, bank, queued } = snapshot;
 
   return (
     <main style={{ fontFamily: "system-ui", maxWidth: 800, margin: "2rem auto", padding: "0 1rem" }}>
@@ -145,6 +150,13 @@ export function Overview() {
       {queued.length > 0 && <p>Queued for the next Tick: {queued.map(describe).join(", ")}</p>}
 
       <Industries industries={industries} />
+
+      <Citizens
+        households={households}
+        summary={summary}
+        citizen={citizen}
+        onZoom={(cohortId) => send({ type: "zoom", cohortId })}
+      />
 
       <h2>Money created and destroyed</h2>
       {log.length === 0 ? (

@@ -1,10 +1,11 @@
-import type { CommercialBankView, Cohort, Command, IndustryView, MoneyEvent } from "../sim";
+import type { Citizen, CommercialBankView, Cohort, CohortView, Command, CountrySummary, IndustryView, MoneyEvent } from "../sim";
 
 export type Speed = 0 | 1 | 2 | 4;
 
 export type ToWorker =
   | { type: "command"; command: Command }
   | { type: "step" }
+  | { type: "zoom"; cohortId: string }
   | { type: "setSpeed"; speed: Speed }
   | { type: "save" }
   | { type: "load"; save: string };
@@ -17,6 +18,8 @@ export interface Snapshot {
   holders: { holder: string; balance: number }[];
   log: MoneyEvent[];
   cohorts: Cohort[];
+  households: CohortView[];
+  summary: CountrySummary;
   industries: IndustryView[];
   bank: CommercialBankView;
   queued: Command[];
@@ -24,5 +27,6 @@ export interface Snapshot {
 
 export type FromWorker =
   | { type: "snapshot"; snapshot: Snapshot }
+  | { type: "citizen"; citizen: Citizen }
   | { type: "saved"; save: string }
   | { type: "error"; message: string };
