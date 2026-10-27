@@ -97,7 +97,7 @@ export function step(world: World, commands: Command[]): { world: World; events:
 }
 
 function toTransaction(world: World, command: Command): Transaction {
-  if (!Number.isInteger(command.amount) || command.amount <= 0) {
+  if (!Number.isSafeInteger(command.amount) || command.amount <= 0) {
     throw new Error(`${command.type} amount must be a positive whole number, got ${command.amount}`);
   }
   switch (command.type) {

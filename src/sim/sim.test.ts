@@ -58,7 +58,7 @@ describe("a Grant", () => {
 });
 
 describe("commands", () => {
-  it.each([0, -50, 1.5])("reject an amount of %s", (amount) => {
+  it.each([0, -50, 1.5, 1e20])("reject an amount of %s", (amount) => {
     const world = createWorld(1);
     const cohort = cohorts(world)[0]!;
     expect(() => step(world, [{ type: "monetize", amount }])).toThrow(/amount/);

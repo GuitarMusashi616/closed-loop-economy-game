@@ -22,9 +22,12 @@ export function Overview() {
       const message = event.data;
       if (message.type === "snapshot") {
         setSnapshot(message.snapshot);
-        setError(undefined);
       } else if (message.type === "saved") {
-        localStorage.setItem("closed-loop-economy-save", message.save);
+        try {
+          localStorage.setItem("closed-loop-economy-save", message.save);
+        } catch {
+          setError("Could not save: browser storage is unavailable or full.");
+        }
       } else {
         setError(message.message);
       }
@@ -33,10 +36,19 @@ export function Overview() {
     return () => w.terminate();
   }, []);
 
-  const send = (message: ToWorker) => worker.current?.postMessage(message);
+  const send = (message: ToWorker) => {
+    setError(undefined);
+    worker.current?.postMessage(message);
+  };
   const load = () => {
-    const save = localStorage.getItem("closed-loop-economy-save");
+    let save: string | null = null;
+    try {
+      save = localStorage.getItem("closed-loop-economy-save");
+    } catch {
+      // Treated the same as no save below.
+    }
     if (save) send({ type: "load", save });
+    else setError("No saved game found.");
   };
 
   if (!snapshot) return <p>Loading…</p>;
