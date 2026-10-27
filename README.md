@@ -68,6 +68,8 @@ Background reading is in [`docs/research/`](docs/research/).
 
 ## Known limitations
 
+See [`docs/known-gaps.md`](docs/known-gaps.md) for the full list. In short:
+
 - Outside Agriculture, Industries stay small, because only Households buy final goods. Balance numbers are placeholders and live in data files and constants.
 - Saves from older versions are rejected with a "predates …" error on load.
 - The UI has only been checked by type-check and build, not by automated browser tests.
