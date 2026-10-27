@@ -23,6 +23,8 @@ function describe(c: Command): string {
       return `${c.target} markup ${c.percent}%`;
     case "setTaxRates":
       return `tax rates (income ${c.income ?? "-"}%, corporate ${c.corporate ?? "-"}%)`;
+    case "setPensionRate":
+      return `pension rate ${c.rate}`;
     default:
       return `${c.type} ${c.amount}`;
   }
@@ -40,6 +42,7 @@ export function Overview() {
   const [retailSpread, setRetailSpread] = useState(15);
   const [incomeTax, setIncomeTax] = useState(0);
   const [corporateTax, setCorporateTax] = useState(0);
+  const [pensionRate, setPensionRate] = useState(0);
   const [convertAmount, setConvertAmount] = useState(1000);
   const [grantCohort, setGrantCohort] = useState("cohort-0");
 
@@ -154,6 +157,11 @@ export function Overview() {
         Rates {fiscal.rates.income}% income, {fiscal.rates.corporate}% corporate · Last Tick: income tax {fiscal.incomeTax.toLocaleString()}, corporate tax{" "}
         {fiscal.corporateTax.toLocaleString()}, dividends to Owner Cohort {fiscal.dividendsToOwners.toLocaleString()}, to Treasury{" "}
         {fiscal.dividendsToTreasury.toLocaleString()}, Household spending {fiscal.householdSpending.toLocaleString()}
+      </p>
+      <h2>Pensions</h2>
+      <p>
+        Payout per retiree per Tick <input type="number" min={0} step={0.05} value={pensionRate} onChange={(e) => setPensionRate(Number(e.target.value))} />{" "}
+        <button onClick={() => send({ type: "command", command: { type: "setPensionRate", rate: pensionRate } })}>Set pension rate</button>
       </p>
       <h2>Sectoral Balance</h2>
       <table>

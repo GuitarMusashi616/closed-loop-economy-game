@@ -1,10 +1,11 @@
-import { hasWelfareStats, newCohort, runHouseholds, sampleCitizenOf, type Citizen, type Cohort, type CohortView, type CountrySummary } from "./households";
+import { hasDurables, hasWelfareStats, newCohort, runHouseholds, sampleCitizenOf, type Citizen, type Cohort, type CohortView, type CountrySummary } from "./households";
 import { runSupplyWeb } from "./web";
 import { seededRandom } from "./rng";
 import { industryAccounts, newIndustries, runIndustry, startIndustry, stockOf, type Industry, type IndustryView, type ProductLine } from "./industry";
 import { PRODUCTS, driftTastes, neutralTastes, type Tastes, type Tier } from "./products";
 import { BANK_ACCOUNTS, FOUNDING_BALANCES, bankView, newPolicy, runRetailCredit, type BankPolicy, type CommercialBankView } from "./bank";
 import { NO_FLOWS, checkRate, payTaxAndDividends, stakeAccount, type FiscalFlows, type TaxRates } from "./tax";
+import { CAR_PER, HOUSE_SHELTERS, REPOSSESSED, REPOSSESSED_ACCOUNT, cohortHousingAccounts, durablesView, foundingDurables, homelessShare, runHousing, runPensions, type DurablesView } from "./housing";
 import { checkInvariants, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
 
 export type { MoneyEvent } from "./ledger";
@@ -13,6 +14,7 @@ export type { IndustryView, ProductLine } from "./industry";
 export type { Tastes, Tier } from "./products";
 export type { BankPolicy, CommercialBankView } from "./bank";
 export type { FiscalFlows, TaxRates } from "./tax";
+export type { DurablesView } from "./housing";
 
 export type Command =
   | { type: "monetize"; amount: number }
@@ -25,7 +27,9 @@ export type Command =
   /** Converts part of an Industry's Industry Loan into an Equity Stake that pays dividends to the Treasury. */
   | { type: "convertLoan"; industryId: string; amount: number }
   /** A Markup / Discount in percent on a Product id or on "wages", applied after discovery. 0 clears it. */
-  | { type: "setMarkup"; target: string; percent: number };
+  | { type: "setMarkup"; target: string; percent: number }
+  /** Money the Treasury pays each retired citizen per Tick, as far as the Treasury holds it. */
+  | { type: "setPensionRate"; rate: number };
 
 export type { AgeBand, Citizen, Cohort, CohortView, CountrySummary } from "./households";
 
@@ -42,6 +46,9 @@ export interface World {
   /** Player Markup / Discount in percent, by Product id or "wages". Absent means 0%. */
   markups: Record<string, number>;
   taxes: TaxRates;
+  /** Pension payout per retired citizen per Tick, and what was paid on the latest Tick. */
+  pensionRate: number;
+  pensionsPaid: number;
   /** Taxes and dividends of the latest Tick. */
   flows: FiscalFlows;
   ledger: Ledger;
@@ -74,15 +81,20 @@ const COHORTS = [
   { name: "Retirees", ageBand: "retired", education: 50 },
 ] as const;
 
-export function createWorld(seed: number, options: { waterCoverage?: number } = {}): World {
+/** `housed` is the share of the housing each cohort needs that it starts out owning (default 1). */
+export function createWorld(seed: number, options: { waterCoverage?: number; housed?: number } = {}): World {
   const random = seededRandom(seed);
-  const cohorts = COHORTS.map((c, i) =>
-    newCohort(`cohort-${i}`, c.name, c.ageBand, 20000 + Math.floor(random() * 20000), c.education),
-  );
+  const housed = Math.min(1, Math.max(0, options.housed ?? 1));
+  const cohorts = COHORTS.map((c, i) => {
+    const cohort = newCohort(`cohort-${i}`, c.name, c.ageBand, 20000 + Math.floor(random() * 20000), c.education);
+    const houses = Math.ceil((cohort.population * housed) / HOUSE_SHELTERS);
+    return { ...cohort, houses, cars: Math.floor(cohort.population / CAR_PER), homelessness: homelessShare(houses, cohort.population) };
+  });
   const cohortAccounts = cohorts.flatMap((c): Account[] => [
     { id: `${c.id}:money`, kind: "asset", holder: c.name, isMoney: true },
     { id: `${c.id}:equity`, kind: "equity", holder: c.name, isMoney: false },
     { id: `${c.id}:loanOwed`, kind: "liability", holder: c.name, isMoney: false },
+    ...cohortHousingAccounts(c),
   ]);
   const industries = newIndustries();
   return {
@@ -95,20 +107,29 @@ export function createWorld(seed: number, options: { waterCoverage?: number } = 
     tastes: neutralTastes(cohorts.map((c) => c.id)),
     markups: {},
     taxes: { income: 0, corporate: 0 },
+    pensionRate: 0,
+    pensionsPaid: 0,
     flows: NO_FLOWS,
     ledger: withFounding(emptyLedger([
       ...ACCOUNTS,
       ...BANK_ACCOUNTS,
+      REPOSSESSED_ACCOUNT,
       { id: "treasury:equity", kind: "equity", holder: TREASURY, isMoney: false },
       ...cohortAccounts,
       ...industries.flatMap(accountsFor),
-    ])),
+    ]), cohorts),
     log: [],
   };
 }
 
-function withFounding(ledger: Ledger): Ledger {
-  return { ...ledger, balances: { ...ledger.balances, ...FOUNDING_BALANCES } };
+function withFounding(ledger: Ledger, cohorts: Cohort[]): Ledger {
+  const durables = Object.assign({}, ...cohorts.map(foundingDurables));
+  return { ...ledger, balances: { ...ledger.balances, ...FOUNDING_BALANCES, ...durables } };
+}
+
+/** Owned houses and cars with their depreciated book value, and each cohort's Collateralised Loan. */
+export function durables(world: World): DurablesView[] {
+  return durablesView(world.ledger, world.cohorts);
 }
 
 export function commercialBank(world: World): CommercialBankView {
@@ -227,7 +248,8 @@ export function sectoralBalance(world: World): SectoralBalanceView {
   const totals: SectoralBalanceView = { government: 0, households: 0, industries: 0, commercialBanks: 0 };
   for (const account of world.ledger.accounts) {
     const sector = sectorOf.get(account.holder);
-    if (!sector || account.kind === "equity") continue;
+    // Houses, cars and repossessed collateral are real assets, not financial positions.
+    if (!sector || account.kind === "equity" || /:(houses|cars)$/.test(account.id) || account.id === REPOSSESSED) continue;
     const balance = world.ledger.balances[account.id] ?? 0;
     totals[sector] += account.kind === "asset" ? balance : -balance;
   }
@@ -268,6 +290,9 @@ export function deserialize(save: string): World {
     throw new Error("Save predates the supply web and cannot be loaded");
   }
   if (!world.taxes || !world.flows) throw new Error("Save predates taxes and cannot be loaded");
+  if (!hasDurables(world.cohorts) || typeof world.pensionRate !== "number") {
+    throw new Error("Save predates housing and cannot be loaded");
+  }
   if (!hasWelfareStats(world.cohorts) || typeof world.waterCoverage !== "number") {
     throw new Error("Save predates Welfare Stats and cannot be loaded");
   }
@@ -281,6 +306,7 @@ export function step(world: World, commands: Command[]): { world: World; events:
   let policy = world.policy;
   let markups = world.markups;
   let taxes = world.taxes;
+  let pensionRate = world.pensionRate;
   const events: MoneyEvent[] = [];
   const grain: Record<string, number> = {};
   for (const command of commands) {
@@ -295,6 +321,13 @@ export function step(world: World, commands: Command[]): { world: World; events:
       };
       continue;
     }
+    if (command.type === "setPensionRate") {
+      if (!Number.isFinite(command.rate) || command.rate < 0) {
+        throw new Error(`Pension rate must be a non-negative number, got ${command.rate}`);
+      }
+      pensionRate = command.rate;
+      continue;
+    }
     if (command.type === "setMarkup") {
       markups = applyMarkupCommand(markups, command);
       continue;
@@ -306,7 +339,12 @@ export function step(world: World, commands: Command[]): { world: World; events:
       started = started.map((i) => (i.id === command.industryId ? startIndustry(i) : i));
     }
   }
-  const credit = runRetailCredit(ledger, world.cohorts, started, policy, world.tick);
+  const pensions = runPensions(ledger, world.cohorts, pensionRate, world.tick);
+  ledger = pensions.ledger;
+  const housing = runHousing(ledger, world.cohorts, started, policy, world.tick);
+  ledger = housing.ledger;
+  events.push(...housing.events);
+  const credit = runRetailCredit(ledger, housing.cohorts, started, policy, world.tick);
   ledger = credit.ledger;
   events.push(...credit.events);
   const cohortsNext = credit.cohorts;
@@ -347,7 +385,7 @@ export function step(world: World, commands: Command[]): { world: World; events:
     ).ledger;
   }
   checkInvariants(ledger);
-  return { world: { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: next, policy, tastes, markups, taxes, flows, ledger, log: [...world.log, ...events] }, events };
+  return { world: { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: next, policy, tastes, markups, taxes, pensionRate, pensionsPaid: pensions.paid, flows, ledger, log: [...world.log, ...events] }, events };
 }
 
 function applyMarkupCommand(markups: Record<string, number>, command: Extract<Command, { type: "setMarkup" }>): Record<string, number> {
@@ -374,7 +412,7 @@ function applyPolicy(policy: BankPolicy, command: Extract<Command, { type: "setP
   };
 }
 
-function toTransaction(world: World, command: Exclude<Command, { type: "setPolicyRate" | "setSpreads" | "setMarkup" | "setTaxRates" }>): Transaction {
+function toTransaction(world: World, command: Exclude<Command, { type: "setPolicyRate" | "setSpreads" | "setMarkup" | "setTaxRates" | "setPensionRate" }>): Transaction {
   if (!Number.isSafeInteger(command.amount) || command.amount <= 0) {
     throw new Error(`${command.type} amount must be a positive whole number, got ${command.amount}`);
   }
