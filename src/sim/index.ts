@@ -1,4 +1,4 @@
-import { hasWelfareStats, newCohort, runHouseholds, sampleCitizenOf, type Citizen, type Cohort, type CohortView, type CountrySummary } from "./households";
+import { hasDurables, hasWelfareStats, newCohort, runHouseholds, sampleCitizenOf, type Citizen, type Cohort, type CohortView, type CountrySummary } from "./households";
 import { runSupplyWeb } from "./web";
 import { seededRandom } from "./rng";
 import { isWorkingAge, newLabor, runLabor, workforceOf, type Labor } from "./labor";
@@ -7,17 +7,27 @@ import { industryAccounts, labourDemand, newIndustries, runIndustry, startIndust
 import { PRODUCTS, driftTastes, neutralTastes, type Tastes, type Tier } from "./products";
 import { BANK_ACCOUNTS, FOUNDING_BALANCES, bankView, newPolicy, runRetailCredit, type BankPolicy, type CommercialBankView } from "./bank";
 import { NO_FLOWS, checkRate, payTaxAndDividends, stakeAccount, type FiscalFlows, type TaxRates } from "./tax";
-import { checkInvariants, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
+import { chooseActive, contractDemand, newResearch, researchView, runContract, type ResearchState, type ResearchView } from "./research";
+import { nextEpisode, type DeflationEpisode, debtAccounts, debtBurdens as computeBurdens, governmentDebt as computeDebt, issueDebt, priceIndex as computePriceIndex, retireDebt, type DebtBurdensView, type GovernmentDebtView } from "./debt";
+import { CAR_PER, HOUSE_SHELTERS, REPOSSESSED, REPOSSESSED_ACCOUNT, cohortHousingAccounts, durablesView, foundingDurables, homelessShare, runHousing, runPensions, type DurablesView } from "./housing";
+import { explainTick, type Explanation } from "./explain";
+import { CREATION, DESTRUCTION, checkInvariants, emptyLedger, ledgerMoneySupply, post, type Account, type Ledger, type MoneyEvent, type Transaction } from "./ledger";
 
-export type { MoneyEvent } from "./ledger";
+export type { MoneyEvent, MoneyFlow } from "./ledger";
+export type { Explanation } from "./explain";
 export { InvariantViolation } from "./ledger";
 export type { IndustryView, ProductLine } from "./industry";
 export type { Tastes, Tier } from "./products";
 export type { BankPolicy, CommercialBankView } from "./bank";
 export type { FiscalFlows, TaxRates } from "./tax";
 export type { PublicService } from "./education";
+export type { ResearchView, TechnologyView, TechnologyStatus, Branch } from "./research";
+export type { DebtBurden, DebtBurdensView, GovernmentDebtView } from "./debt";
+export type { DurablesView } from "./housing";
 
 export type Command =
+  /** Chooses the Technologies to research, up to the number of slots. Replaces the previous choice. */
+  | { type: "setResearch"; technologyIds: string[] }
   | { type: "monetize"; amount: number }
   | { type: "grant"; cohortId: string; amount: number }
   | { type: "industryLoan"; industryId: string; amount: number }
@@ -32,7 +42,13 @@ export type Command =
   /** The percent of a service's price the Treasury pays to the Industry (a Public Funding Share), 0 to 100. */
   | { type: "setPublicFunding"; service: PublicService; percent: number }
   /** Whether the Government offers Tuition Loans at the Policy Rate. */
-  | { type: "setGovernmentEducationLoans"; enabled: boolean };
+  | { type: "setGovernmentEducationLoans"; enabled: boolean }
+  /** Sells Government debt to "bank" or a Household Cohort id for their cash. Money only changes hands. */
+  | { type: "issueDebt"; holder: string; amount: number }
+  /** Pays Treasury cash to retire debt. Debt held by "centralBank" destroys money; any other holder just gets cash back. */
+  | { type: "retireDebt"; holder: string; amount: number }
+  /** Money the Treasury pays each retired citizen per Tick, as far as the Treasury holds it. */
+  | { type: "setPensionRate"; rate: number };
 
 export type { AgeBand, Citizen, Cohort, CohortView, CountrySummary } from "./households";
 
@@ -52,13 +68,43 @@ export interface World {
   markups: Record<string, number>;
   taxes: TaxRates;
   education: EducationPolicy;
+  /** Pension payout per retired citizen per Tick, and what was paid on the latest Tick. */
+  pensionRate: number;
+  pensionsPaid: number;
   /** Taxes and dividends of the latest Tick. */
   flows: FiscalFlows;
+  /** Technologies researched, being researched, and their progress. */
+  research: ResearchState;
   ledger: Ledger;
   log: MoneyEvent[];
+  /** A deflation episode, or null. It starts when a Tick destroys a real share of the money supply and ends once prices have fallen and then recovered to their level before it. */
+  deflation: DeflationEpisode | null;
+  /** One row per Tick for the charts. */
+  history: TickStats[];
+  /** Why notable things happened, in the order they happened. */
+  notes: Explanation[];
+}
+
+/** What the charts plot for one Tick. */
+export interface TickStats {
+  tick: number;
+  moneySupply: number;
+  /** Latest price of each Product by id, 0 if never sold. */
+  prices: Record<string, number>;
+  /** Workers employed across all Industries. */
+  employment: number;
+  population: number;
+  // Welfare Stats, as per-citizen means (hunger and thirst: higher is worse).
+  health: number;
+  hunger: number;
+  thirst: number;
+  education: number;
+  wealth: number;
 }
 
 const TREASURY = "Treasury";
+/** A Tick that destroys at least this share of the money supply starts a deflation episode. */
+const DEFLATION_TRIGGER = 0.02;
 
 const ACCOUNTS: Account[] = [
   { id: "centralBank:moneyIssued", kind: "liability", holder: "Central Bank", isMoney: false },
@@ -84,16 +130,21 @@ const COHORTS = [
   { name: "Retirees", ageBand: "retired", education: 50 },
 ] as const;
 
-export function createWorld(seed: number, options: { waterCoverage?: number } = {}): World {
+/** `housed` is the share of the housing each cohort needs that it starts out owning (default 1). */
+export function createWorld(seed: number, options: { waterCoverage?: number; housed?: number } = {}): World {
   const random = seededRandom(seed);
-  const cohorts = COHORTS.map((c, i) =>
-    newCohort(`cohort-${i}`, c.name, c.ageBand, 20000 + Math.floor(random() * 20000), c.education),
-  );
+  const housed = Math.min(1, Math.max(0, options.housed ?? 1));
+  const cohorts = COHORTS.map((c, i) => {
+    const cohort = newCohort(`cohort-${i}`, c.name, c.ageBand, 20000 + Math.floor(random() * 20000), c.education);
+    const houses = Math.ceil((cohort.population * housed) / HOUSE_SHELTERS);
+    return { ...cohort, houses, cars: Math.floor(cohort.population / CAR_PER), homelessness: homelessShare(houses, cohort.population) };
+  });
   const cohortAccounts = cohorts.flatMap((c): Account[] => [
     { id: `${c.id}:money`, kind: "asset", holder: c.name, isMoney: true },
     { id: `${c.id}:equity`, kind: "equity", holder: c.name, isMoney: false },
     { id: `${c.id}:loanOwed`, kind: "liability", holder: c.name, isMoney: false },
     ...educationLedgerAccounts(c),
+    ...cohortHousingAccounts(c),
   ]);
   const industries = newIndustries();
   return {
@@ -108,20 +159,34 @@ export function createWorld(seed: number, options: { waterCoverage?: number } = 
     markups: {},
     taxes: { income: 0, corporate: 0 },
     education: newEducationPolicy(),
+    pensionRate: 0,
+    pensionsPaid: 0,
     flows: NO_FLOWS,
+    research: newResearch(),
     ledger: withFounding(emptyLedger([
       ...ACCOUNTS,
       ...BANK_ACCOUNTS,
+      REPOSSESSED_ACCOUNT,
       { id: "treasury:equity", kind: "equity", holder: TREASURY, isMoney: false },
       ...cohortAccounts,
+      ...debtAccounts(cohorts),
       ...industries.flatMap(accountsFor),
-    ])),
+    ]), cohorts),
     log: [],
+    deflation: null,
+    history: [],
+    notes: [],
   };
 }
 
-function withFounding(ledger: Ledger): Ledger {
-  return { ...ledger, balances: { ...ledger.balances, ...FOUNDING_BALANCES } };
+function withFounding(ledger: Ledger, cohorts: Cohort[]): Ledger {
+  const durables = Object.assign({}, ...cohorts.map(foundingDurables));
+  return { ...ledger, balances: { ...ledger.balances, ...FOUNDING_BALANCES, ...durables } };
+}
+
+/** Owned houses and cars with their depreciated book value, and each cohort's Collateralised Loan. */
+export function durables(world: World): DurablesView[] {
+  return durablesView(world.ledger, world.cohorts);
 }
 
 export function commercialBank(world: World): CommercialBankView {
@@ -162,6 +227,11 @@ export function sampleCitizen(world: World, cohortId: string, slot: number): Cit
   const cohort = cohortViews(world).find((c) => c.id === cohortId);
   if (!cohort) throw new Error(`Unknown Household Cohort ${cohortId}`);
   return sampleCitizenOf(cohort, world.seed, slot);
+}
+
+/** The tech tree with each Technology's progress and status, and how fast the Research Labs are working. */
+export function research(world: World): ResearchView {
+  return researchView(world.research, world.industries);
 }
 
 export function industries(world: World): IndustryView[] {
@@ -215,7 +285,9 @@ export interface ProductMarketView {
 
 /** Supply and demand for every Product, for inspection. */
 export function productMarkets(world: World): ProductMarketView[] {
-  return PRODUCTS.map((def) => {
+  // Products still locked behind a Technology have no line yet and are not on the market.
+  const made = new Set(world.industries.flatMap((i) => i.lines.map((l) => l.productId)));
+  return PRODUCTS.filter((def) => made.has(def.id)).map((def) => {
     const lines = world.industries.flatMap((i) => i.lines.filter((l): l is ProductLine => l.productId === def.id));
     const sum = (pick: (l: ProductLine) => number) => lines.reduce((s, l) => s + pick(l), 0);
     const sold = sum((l) => l.sold);
@@ -256,7 +328,8 @@ export function sectoralBalance(world: World): SectoralBalanceView {
   const totals: SectoralBalanceView = { government: 0, households: 0, industries: 0, commercialBanks: 0 };
   for (const account of world.ledger.accounts) {
     const sector = sectorOf.get(account.holder);
-    if (!sector || account.kind === "equity") continue;
+    // Houses, cars and repossessed collateral are real assets, not financial positions.
+    if (!sector || account.kind === "equity" || /:(houses|cars)$/.test(account.id) || account.id === REPOSSESSED) continue;
     const balance = world.ledger.balances[account.id] ?? 0;
     totals[sector] += account.kind === "asset" ? balance : -balance;
   }
@@ -305,6 +378,21 @@ export function education(world: World): EducationView {
   };
 }
 
+/** Who holds the Government's debt. */
+export function governmentDebt(world: World): GovernmentDebtView {
+  return computeDebt(world.ledger, world.cohorts.map((c) => c.id));
+}
+
+/** Average Product price relative to the start, 1 at the start. */
+export function priceIndex(world: World): number {
+  return computePriceIndex(world.industries);
+}
+
+/** Nominal and real (price-adjusted) debts of the Government, Industries and Households. */
+export function debtBurdens(world: World): DebtBurdensView {
+  return computeBurdens(world.ledger, world.industries, world.cohorts.map((c) => c.id));
+}
+
 export function moneySupply(world: World): number {
   return ledgerMoneySupply(world.ledger);
 }
@@ -315,6 +403,56 @@ export function moneyHolders(world: World): { holder: string; balance: number }[
     totals.set(account.holder, (totals.get(account.holder) ?? 0) + (world.ledger.balances[account.id] ?? 0));
   }
   return [...totals].map(([holder, balance]) => ({ holder, balance }));
+}
+
+export function history(world: World): TickStats[] {
+  return world.history ?? [];
+}
+
+export function explanations(world: World): Explanation[] {
+  return world.notes ?? [];
+}
+
+export interface FlowLink {
+  from: string;
+  to: string;
+  amount: number;
+}
+
+export interface MoneyFlowView {
+  /** Money moved between sectors, plus creation into and destruction out of them. Flows within one sector are left out. */
+  links: FlowLink[];
+  created: number;
+  destroyed: number;
+}
+
+/** Where money moved between sectors over the Ticks `fromTick` to `toTick` inclusive, with creation and destruction kept apart. */
+export function moneyFlows(world: World, fromTick: number, toTick: number): MoneyFlowView {
+  const sectorOf = new Map<string, string>([
+    [TREASURY, "Government"],
+    ["Central Bank", "Government"],
+    ["Commercial Bank", "Commercial Banks"],
+    [CREATION, CREATION],
+    [DESTRUCTION, DESTRUCTION],
+  ]);
+  for (const c of world.cohorts) sectorOf.set(c.name, "Households");
+  for (const i of world.industries) sectorOf.set(i.name, "Industries");
+  const totals = new Map<string, FlowLink>();
+  let created = 0;
+  let destroyed = 0;
+  for (const f of world.ledger.flows ?? []) {
+    if (f.tick < fromTick || f.tick > toTick) continue;
+    const from = sectorOf.get(f.from) ?? f.from;
+    const to = sectorOf.get(f.to) ?? f.to;
+    if (from === CREATION) created += f.amount;
+    if (to === DESTRUCTION) destroyed += f.amount;
+    if (from === to) continue;
+    const key = `${from}|${to}`;
+    const link = totals.get(key) ?? { from, to, amount: 0 };
+    link.amount += f.amount;
+    totals.set(key, link);
+  }
+  return { links: [...totals.values()], created, destroyed };
 }
 
 export function moneyLog(world: World): MoneyEvent[] {
@@ -341,6 +479,10 @@ export function deserialize(save: string): World {
   }
   if (!world.education) throw new Error("Save predates education and cannot be loaded");
   if (!world.taxes || !world.flows) throw new Error("Save predates taxes and cannot be loaded");
+  if (!world.research) throw new Error("Save predates Research and cannot be loaded");
+  if (!hasDurables(world.cohorts) || typeof world.pensionRate !== "number") {
+    throw new Error("Save predates housing and cannot be loaded");
+  }
   if (!hasWelfareStats(world.cohorts) || typeof world.waterCoverage !== "number") {
     throw new Error("Save predates Welfare Stats and cannot be loaded");
   }
@@ -355,6 +497,8 @@ export function step(world: World, commands: Command[]): { world: World; events:
   let markups = world.markups;
   let taxes = world.taxes;
   let eduPolicy = world.education;
+  let researchState = world.research;
+  let pensionRate = world.pensionRate;
   const events: MoneyEvent[] = [];
   const grain: Record<string, number> = {};
   for (const command of commands) {
@@ -378,6 +522,17 @@ export function step(world: World, commands: Command[]): { world: World; events:
       eduPolicy = { ...eduPolicy, governmentLoans: command.enabled === true };
       continue;
     }
+    if (command.type === "setResearch") {
+      researchState = chooseActive(researchState, command.technologyIds);
+      continue;
+    }
+    if (command.type === "setPensionRate") {
+      if (!Number.isFinite(command.rate) || command.rate < 0) {
+        throw new Error(`Pension rate must be a non-negative number, got ${command.rate}`);
+      }
+      pensionRate = command.rate;
+      continue;
+    }
     if (command.type === "setMarkup") {
       markups = applyMarkupCommand(markups, command);
       continue;
@@ -389,24 +544,35 @@ export function step(world: World, commands: Command[]): { world: World; events:
       started = started.map((i) => (i.id === command.industryId ? startIndustry(i) : i));
     }
   }
-  const credit = runRetailCredit(ledger, world.cohorts, started, policy, world.tick);
+  const pensions = runPensions(ledger, world.cohorts, pensionRate, world.tick);
+  ledger = pensions.ledger;
+  const housing = runHousing(ledger, world.cohorts, started, policy, world.tick);
+  ledger = housing.ledger;
+  events.push(...housing.events);
+  const credit = runRetailCredit(ledger, housing.cohorts, started, policy, world.tick);
   ledger = credit.ledger;
   events.push(...credit.events);
   const tastes = driftTastes(world.tastes, world.seed, world.tick);
-  const web = runSupplyWeb(started, ledger, markups, world.tick, { education: world.education.demand });
+  const web = runSupplyWeb(contractDemand(started, researchState), ledger, markups, world.tick, { education: world.education.demand });
   ledger = web.ledger;
   events.push(...web.events);
+  // Industries have had first call on the Research Labs' stock; the Government's contract takes what is left.
+  const contract = runContract(researchState, web.industries, ledger, world.tick);
+  ledger = contract.ledger;
+  researchState = contract.state;
   // Households buy the education the other Industries left, then the Treasury pays its healthcare share.
-  const school = runEducation(ledger, web.industries, credit.cohorts, policy, eduPolicy, markups, world.tick);
+  const school = runEducation(ledger, contract.industries, credit.cohorts, policy, eduPolicy, markups, world.tick);
   ledger = school.ledger;
   events.push(...school.events);
   const care = fundHealthcare(ledger, school.industries, eduPolicy.publicShare.healthcare, world.tick);
   ledger = care.ledger;
   events.push(...care.events);
   const cohortsNext = school.cohorts;
+  // In a deflation episode the cost of living the wage floor stands for falls with prices, so wages can follow them down.
+  const floorScale = world.deflation ? Math.min(1, computePriceIndex(world.industries) / world.deflation.base) : 1;
   const market = runLabor(care.industries, cohortsNext, world.labor, (i) =>
     labourDemand(i, ledger.balances[industryAccounts(i).money] ?? 0, markups),
-  );
+  floorScale);
   const payroll = cohortsNext.filter(isWorkingAge).map((c) => ({ id: c.id, population: c.population - Math.min(c.students, c.population) })).filter((c) => c.population > 0);
   const flows: FiscalFlows = { ...NO_FLOWS };
   const next = market.industries.map((industry) => {
@@ -441,8 +607,27 @@ export function step(world: World, commands: Command[]): { world: World; events:
       world.tick,
     ).ledger;
   }
+  const before = ledgerMoneySupply(world.ledger);
+  const contracted = before > 0 && (before - ledgerMoneySupply(ledger)) / before >= DEFLATION_TRIGGER;
+  const deflation = nextEpisode(world.deflation ?? null, contracted, computePriceIndex(world.industries), computePriceIndex(next));
   checkInvariants(ledger);
-  return { world: { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: next, labor: market.labor, policy, tastes, markups, taxes, education: { ...eduPolicy, demand: school.demand, publicSpending: school.publicSpending, healthcareFunding: care.paid, tuitionPaid: school.tuitionPaid }, flows, ledger, log: [...world.log, ...events] }, events };
+  const after: World = { ...world, tick: world.tick + 1, cohorts: households.cohorts, industries: next, labor: market.labor, policy, tastes, markups, taxes, pensionRate, pensionsPaid: pensions.paid, education: { ...eduPolicy, demand: school.demand, publicSpending: school.publicSpending, healthcareFunding: care.paid, tuitionPaid: school.tuitionPaid }, flows, research: researchState, ledger, log: [...world.log, ...events], deflation };
+  const markets = productMarkets(after);
+  const summary = countrySummary(after);
+  const stats: TickStats = {
+    tick: world.tick,
+    moneySupply: moneySupply(after),
+    prices: Object.fromEntries(markets.map((m) => [m.id, m.price])),
+    employment: next.reduce((s, i) => s + i.headcount, 0),
+    population: summary.population,
+    health: summary.health,
+    hunger: summary.hunger,
+    thirst: summary.thirst,
+    education: summary.education,
+    wealth: summary.wealth,
+  };
+  const notes = explainTick(world.tick, { industries: world.industries, products: productMarkets(world) }, { industries: next, products: markets });
+  return { world: { ...after, history: [...history(world), stats], notes: [...explanations(world), ...notes] }, events };
 }
 
 function applyMarkupCommand(markups: Record<string, number>, command: Extract<Command, { type: "setMarkup" }>): Record<string, number> {
@@ -469,7 +654,7 @@ function applyPolicy(policy: BankPolicy, command: Extract<Command, { type: "setP
   };
 }
 
-function toTransaction(world: World, command: Exclude<Command, { type: "setPolicyRate" | "setSpreads" | "setMarkup" | "setTaxRates" | "setPublicFunding" | "setGovernmentEducationLoans" }>): Transaction {
+function toTransaction(world: World, command: Exclude<Command, { type: "setPolicyRate" | "setSpreads" | "setMarkup" | "setTaxRates" | "setPensionRate" | "setResearch" | "setPublicFunding" | "setGovernmentEducationLoans" }>): Transaction {
   if (!Number.isSafeInteger(command.amount) || command.amount <= 0) {
     throw new Error(`${command.type} amount must be a positive whole number, got ${command.amount}`);
   }
@@ -484,6 +669,10 @@ function toTransaction(world: World, command: Exclude<Command, { type: "setPolic
           { account: "centralBank:moneyIssued", credit: command.amount },
         ],
       };
+    case "issueDebt":
+      return issueDebt(world.ledger, world.cohorts.map((c) => c.id), command.holder, command.amount);
+    case "retireDebt":
+      return retireDebt(world.ledger, world.cohorts.map((c) => c.id), command.holder, command.amount);
     case "convertLoan": {
       const industry = world.industries.find((i) => i.id === command.industryId);
       if (!industry) throw new Error(`Unknown Industry ${command.industryId}`);

@@ -13,6 +13,20 @@ export interface Ledger {
   accounts: Account[];
   /** Balances in whole currency units, positive on the account's normal side. */
   balances: Record<string, number>;
+  /** Every movement of money between holders, as it was posted. Absent in older saves. */
+  flows?: MoneyFlow[];
+}
+
+export const CREATION = "Money creation";
+export const DESTRUCTION = "Money destruction";
+
+/** Money that moved from one holder to another in one transaction. Creation and destruction use the pseudo-holders above. */
+export interface MoneyFlow {
+  tick: number;
+  from: string;
+  to: string;
+  amount: number;
+  cause: string;
 }
 
 /** What a transaction type is allowed to do to the money supply. */
@@ -42,6 +56,17 @@ export const TRANSACTION_TYPES = {
   governmentTuitionLoan: { effect: "none", cause: "Government Tuition Loan" },
   governmentTuitionRepayment: { effect: "none", cause: "Government Tuition Loan repayment" },
   publicFunding: { effect: "none", cause: "Public Funding" },
+  researchContract: { effect: "none", cause: "Research contract" },
+  bondSale: { effect: "none", cause: "Government debt sale" },
+  debtRepayment: { effect: "none", cause: "Government debt repayment" },
+  debtRetirement: { effect: "destroy", cause: "Debt retirement" },
+  collateralisedLoan: { effect: "create", cause: "Collateralised Loan" },
+  collateralisedRepayment: { effect: "destroy", cause: "Collateralised Loan repayment" },
+  collateralisedInterest: { effect: "none", cause: "Collateralised Loan interest" },
+  durablePurchase: { effect: "none", cause: "Durable purchase" },
+  depreciation: { effect: "none", cause: "Depreciation" },
+  seizure: { effect: "none", cause: "Collateral seizure" },
+  pension: { effect: "none", cause: "Pension" },
 } as const satisfies Record<string, { effect: SupplyEffect; cause: string }>;
 
 export type TransactionType = keyof typeof TRANSACTION_TYPES;
@@ -75,6 +100,7 @@ export function emptyLedger(accounts: Account[]): Ledger {
   return {
     accounts,
     balances: Object.fromEntries(accounts.map((a) => [a.id, 0])),
+    flows: [],
   };
 }
 
@@ -116,9 +142,37 @@ export function post(
     throw new InvariantViolation(`${tx.type} may ${effect} money but moved the supply by ${delta}`);
   }
 
+  next.flows = [...(ledger.flows ?? []), ...flowsOf(ledger, next, delta, cause, tick)];
+
   const event: MoneyEvent | null =
     delta === 0 ? null : { tick, direction: delta > 0 ? "created" : "destroyed", amount: Math.abs(delta), cause };
   return { ledger: next, event };
+}
+
+/** Pairs holders whose money fell with holders whose money rose; a created or destroyed amount is one side of the pairing. */
+function flowsOf(before: Ledger, after: Ledger, delta: number, cause: string, tick: number): MoneyFlow[] {
+  const net = new Map<string, number>();
+  for (const a of after.accounts.filter((a) => a.isMoney)) {
+    const change = (after.balances[a.id] ?? 0) - (before.balances[a.id] ?? 0);
+    if (change !== 0) net.set(a.holder, (net.get(a.holder) ?? 0) + change);
+  }
+  const givers = [...net].filter(([, c]) => c < 0).map(([h, c]) => ({ holder: h, left: -c }));
+  const takers = [...net].filter(([, c]) => c > 0).map(([h, c]) => ({ holder: h, left: c }));
+  if (delta > 0) givers.push({ holder: CREATION, left: delta });
+  if (delta < 0) takers.push({ holder: DESTRUCTION, left: -delta });
+  const flows: MoneyFlow[] = [];
+  let t = 0;
+  for (const giver of givers) {
+    while (giver.left > 0 && t < takers.length) {
+      const taker = takers[t]!;
+      const amount = Math.min(giver.left, taker.left);
+      if (amount > 0) flows.push({ tick, from: giver.holder, to: taker.holder, amount, cause });
+      giver.left -= amount;
+      taker.left -= amount;
+      if (taker.left === 0) t++;
+    }
+  }
+  return flows;
 }
 
 /** Throws unless the ledger is internally consistent. */

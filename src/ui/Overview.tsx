@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { Command } from "../sim";
 import { Citizens } from "./Citizens";
+import { Flows } from "./Flows";
 import { Industries } from "./Industries";
 import { Products } from "./Products";
+import { Research } from "./Research";
 import type { Citizen } from "../sim";
 import type { FromWorker, Snapshot, Speed, ToWorker } from "./protocol";
 
@@ -27,6 +29,10 @@ function describe(c: Command): string {
       return `${c.service} Public Funding Share ${c.percent}%`;
     case "setGovernmentEducationLoans":
       return `Government Tuition Loans ${c.enabled ? "on" : "off"}`;
+    case "setResearch":
+      return `research ${c.technologyIds.join(", ") || "none"}`;
+    case "setPensionRate":
+      return `pension rate ${c.rate}`;
     default:
       return `${c.type} ${c.amount}`;
   }
@@ -46,6 +52,7 @@ export function Overview() {
   const [corporateTax, setCorporateTax] = useState(0);
   const [healthcareShare, setHealthcareShare] = useState(0);
   const [educationShare, setEducationShare] = useState(0);
+  const [pensionRate, setPensionRate] = useState(0);
   const [convertAmount, setConvertAmount] = useState(1000);
   const [grantCohort, setGrantCohort] = useState("cohort-0");
 
@@ -87,7 +94,7 @@ export function Overview() {
   };
 
   if (!snapshot) return <p>Loading…</p>;
-  const { tick, seed, speed, moneySupply, holders, log, cohorts, households, summary, industries, products, wageMarkup, bank, queued, fiscal, sectoral, education } = snapshot;
+  const { tick, seed, speed, moneySupply, holders, log, cohorts, households, summary, industries, products, wageMarkup, bank, queued, fiscal, sectoral, education, flows, flowWindow, history, notes } = snapshot;
 
   return (
     <main style={{ fontFamily: "system-ui", maxWidth: 800, margin: "2rem auto", padding: "0 1rem" }}>
@@ -177,6 +184,11 @@ export function Overview() {
         Tuition debt: bank {education.debt.bank.toLocaleString()}, Government {education.debt.government.toLocaleString()} · Last Tick: students paid{" "}
         {education.tuitionPaid.toLocaleString()}, Treasury paid {education.publicSpending.toLocaleString()} tuition and {education.healthcareFunding.toLocaleString()} healthcare
       </p>
+      <h2>Pensions</h2>
+      <p>
+        Payout per retiree per Tick <input type="number" min={0} step={0.05} value={pensionRate} onChange={(e) => setPensionRate(Number(e.target.value))} />{" "}
+        <button onClick={() => send({ type: "command", command: { type: "setPensionRate", rate: pensionRate } })}>Set pension rate</button>
+      </p>
       <h2>Sectoral Balance</h2>
       <table>
         <tbody>
@@ -205,7 +217,17 @@ export function Overview() {
       </p>
       {queued.length > 0 && <p>Queued for the next Tick: {queued.map(describe).join(", ")}</p>}
 
+      <Flows
+        flows={flows}
+        window={flowWindow}
+        onWindow={(ticks) => send({ type: "setFlowWindow", ticks })}
+        history={history}
+        notes={notes}
+        productNames={Object.fromEntries(products.map((p) => [p.id, p.name]))}
+      />
+
       <Industries industries={industries} />
+      <Research research={snapshot.research} onChoose={(technologyIds) => send({ type: "command", command: { type: "setResearch", technologyIds } })} />
       <Products
         products={products}
         wageMarkup={wageMarkup}

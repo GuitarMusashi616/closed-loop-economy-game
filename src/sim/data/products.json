@@ -3,6 +3,8 @@
   {"id": "vegetables", "name": "Vegetables", "tier": "essentials", "maxWtp": 24, "shelfLife": 4, "household": true},
   {"id": "meat", "name": "Meat", "tier": "essentials", "maxWtp": 32, "shelfLife": 3, "household": true},
   {"id": "dairy", "name": "Dairy", "tier": "essentials", "maxWtp": 26, "shelfLife": 2, "household": true},
+  {"id": "fruit", "name": "Fruit", "tier": "essentials", "maxWtp": 22, "shelfLife": 3, "household": true},
+  {"id": "fish", "name": "Fish", "tier": "essentials", "maxWtp": 28, "shelfLife": 2, "household": true},
   {"id": "ore", "name": "Ore", "tier": "comforts", "maxWtp": 10, "shelfLife": null},
   {"id": "power", "name": "Power", "tier": "comforts", "maxWtp": 8, "shelfLife": 1},
   {"id": "metal", "name": "Metal", "tier": "comforts", "maxWtp": 30, "shelfLife": null},

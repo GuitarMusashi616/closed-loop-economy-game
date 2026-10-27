@@ -22,6 +22,8 @@ export interface ProductLine {
   plan: number;
   /** Units other Industries are expected to want per Tick, a running average of what they asked for. */
   expected: number;
+  /** Units per Tick the Government has contracted to buy, on top of `expected`. */
+  contracted?: number;
   // Results of the latest Tick, for display.
   produced: number;
   sold: number;
@@ -89,7 +91,17 @@ interface IndustryDef {
   experienceType: ExperienceType | null;
   startHeadcount: number;
   capitalGood: string;
-  lines: { productId: string; yield: number; ask: number; capacityPerUnit: number; inputs: Record<string, number> }[];
+  lines: LineDef[];
+  /** Lines added once a Technology unlocks their Product. */
+  lockedLines?: LineDef[];
+}
+
+interface LineDef {
+  productId: string;
+  yield: number;
+  ask: number;
+  capacityPerUnit: number;
+  inputs: Record<string, number>;
 }
 
 /** The seven starting Industries, with their recipes, are defined in `data/industries.json`. */
@@ -107,15 +119,27 @@ const BROKE_AFTER = 5;
 const capacityPerWorker = (lines: { yield: number; capacityPerUnit: number }[]) =>
   lines.reduce((s, l) => s + l.yield * l.capacityPerUnit, 0);
 
+const buildLine = (l: LineDef): ProductLine => ({
+  productId: l.productId, yield: l.yield, inputs: l.inputs, capacityPerUnit: l.capacityPerUnit, plan: 0, expected: 0,
+  batches: [], ask: l.ask, produced: 0, sold: 0, demand: 0, spoiled: 0, price: 0,
+});
+
+/** Adds the lines for newly unlocked Products to the Industries that can make them. */
+export function unlockProducts(industries: Industry[], productIds: string[]): Industry[] {
+  return industries.map((industry) => {
+    const added = (DEFS.find((d) => d.id === industry.id)?.lockedLines ?? []).filter(
+      (l) => productIds.includes(l.productId) && !industry.lines.some((o) => o.productId === l.productId),
+    );
+    return added.length === 0 ? industry : { ...industry, lines: [...industry.lines, ...added.map(buildLine)] };
+  });
+}
+
 function build(def: IndustryDef): Industry {
   return {
     id: def.id,
     name: def.name,
     started: false,
-    lines: def.lines.map((l) => ({
-      productId: l.productId, yield: l.yield, inputs: l.inputs, capacityPerUnit: l.capacityPerUnit, plan: 0, expected: 0,
-      batches: [], ask: l.ask, produced: 0, sold: 0, demand: 0, spoiled: 0, price: 0,
-    })),
+    lines: def.lines.map(buildLine),
     wage: wageFloor(def.experienceType),
     experienceType: def.experienceType,
     workers: 0,
@@ -136,6 +160,11 @@ function build(def: IndustryDef): Industry {
     revenue: 0,
     costs: 0,
   };
+}
+
+/** The ask an Industry opened with for a Product, the base for the price index. */
+export function startingAsk(industryId: string, productId: string): number {
+  return DEFS.find((d) => d.id === industryId)?.lines.find((l) => l.productId === productId)?.ask ?? 1;
 }
 
 export function newIndustries(): Industry[] {
@@ -204,8 +233,9 @@ export interface MarketInputs {
 export function planFor(industry: Industry, line: ProductLine): number {
   const capacity = Math.floor(industry.targetHeadcount * line.yield * industry.productivity + 1e-9);
   if (productDef(line.productId).household) return capacity;
-  const glut = stockOf(line) > 2 * line.expected;
-  return glut ? 0 : Math.min(capacity, Math.ceil(STOCK_BUFFER * line.expected));
+  const wanted = line.expected + (line.contracted ?? 0);
+  const glut = stockOf(line) > 2 * wanted;
+  return glut ? 0 : Math.min(capacity, Math.ceil(STOCK_BUFFER * wanted));
 }
 
 /** Capacity the Industry wants to hold, a buffer above what its target headcount uses. */

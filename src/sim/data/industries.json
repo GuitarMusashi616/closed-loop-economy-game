@@ -6,6 +6,10 @@
       {"productId": "vegetables", "yield": 1, "ask": 10, "capacityPerUnit": 1, "inputs": {}},
       {"productId": "meat", "yield": 1, "ask": 14, "capacityPerUnit": 1, "inputs": {}},
       {"productId": "dairy", "yield": 1, "ask": 12, "capacityPerUnit": 1, "inputs": {}}
+    ],
+    "lockedLines": [
+      {"productId": "fruit", "yield": 1, "ask": 11, "capacityPerUnit": 1, "inputs": {}},
+      {"productId": "fish", "yield": 1, "ask": 13, "capacityPerUnit": 1, "inputs": {}}
     ]
   },
   {

@@ -36,7 +36,7 @@ const STUDY_GAIN = 5;
 /** Debt a student will carry is this divided by the loan rate, per citizen wanting to study. */
 const DEBT_BUDGET = 40;
 /** A student who borrows values a study day at this multiple of the cash price, before the cost of the loan. */
-const FINANCED_VALUE = 2;
+const FINANCED_VALUE = 1;
 /** Years over which a loan weighs on a borrower's willingness to pay. */
 const PAYBACK_YEARS = 5;
 /**
@@ -262,7 +262,8 @@ export function runEducation<C extends CohortLike>(
   const updated = {
     ...line,
     batches: take(line.batches, sold),
-    ask: nextAsk(industry, line, line.sold + sold, supply + line.sold, auction.price),
+    // The ask never climbs past what anyone would pay, or it would price out the Industries that buy education too.
+    ask: Math.min(def.maxWtp, nextAsk(industry, line, line.sold + sold, supply + line.sold, auction.price)),
     sold: line.sold + sold,
     demand: line.demand + auction.demand,
     price: sold > 0 ? price : line.price,
